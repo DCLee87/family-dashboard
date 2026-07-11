@@ -32,6 +32,7 @@
 - [종일·여러 날 일정 결정](docs/decisions/ADR-009-all-day-and-multi-day-schedules.md)
 - [PWA 시스템 구성 결정](docs/decisions/ADR-010-pwa-system-architecture.md)
 - [Web Push 알림 결정](docs/decisions/ADR-011-web-push-notifications.md)
+- [할 일 기본 구조 결정](docs/decisions/ADR-012-task-model.md)
 
 ## 문서 작성 원칙
 
