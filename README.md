@@ -27,6 +27,7 @@
 - [겹치는 일정 처리 결정](docs/decisions/ADR-005-overlapping-schedules.md)
 - [일정 공개 범위 결정](docs/decisions/ADR-006-schedule-visibility.md)
 - [일정 삭제와 복구 결정](docs/decisions/ADR-007-schedule-deletion-and-recovery.md)
+- [PIN 기반 관리자 모드 결정](docs/decisions/ADR-008-pin-admin-mode.md)
 
 ## 문서 작성 원칙
 
