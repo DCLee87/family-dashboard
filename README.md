@@ -20,6 +20,7 @@
 - [위험 목록](docs/06-risk-register.md)
 - [용어집](docs/07-glossary.md)
 - [배포 환경](docs/08-deployment-environment.md)
+- [시스템 구성](docs/09-system-context.md)
 - [설계 결정 기록](docs/decisions/ADR-001-adaptive-dashboard.md)
 - [일정 기반 가족 상태 결정](docs/decisions/ADR-002-schedule-based-family-status.md)
 - [일정 대상 가족 구조 결정](docs/decisions/ADR-003-multi-participant-schedule.md)
@@ -29,6 +30,8 @@
 - [일정 삭제와 복구 결정](docs/decisions/ADR-007-schedule-deletion-and-recovery.md)
 - [PIN 기반 관리자 모드 결정](docs/decisions/ADR-008-pin-admin-mode.md)
 - [종일·여러 날 일정 결정](docs/decisions/ADR-009-all-day-and-multi-day-schedules.md)
+- [PWA 시스템 구성 결정](docs/decisions/ADR-010-pwa-system-architecture.md)
+- [Web Push 알림 결정](docs/decisions/ADR-011-web-push-notifications.md)
 
 ## 문서 작성 원칙
 
