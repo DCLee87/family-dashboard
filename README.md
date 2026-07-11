@@ -11,6 +11,7 @@
 ## 문서
 
 - [개발 프로세스](docs/00-development-process.md)
+- [UP 단계별 산출물](docs/up/README.md)
 - [비전과 범위](docs/01-vision-and-scope.md)
 - [이해관계자](docs/02-stakeholders.md)
 - [기기와 권한](docs/03-device-and-permissions.md)
@@ -27,6 +28,7 @@
 - 주소, 실제 위치, 비밀번호, PIN 등의 비밀값은 저장소에 기록하지 않는다.
 - 중요한 설계 결정은 ADR로 이유와 함께 남긴다.
 - 요구사항과 검증 기준에는 추적 가능한 식별자를 부여한다.
+- UP 단계별 산출물과 완료 상태는 `docs/up/`에서 유지한다.
 
 ## 요구사항 식별자
 
