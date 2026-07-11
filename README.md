@@ -22,6 +22,7 @@
 - [배포 환경](docs/08-deployment-environment.md)
 - [설계 결정 기록](docs/decisions/ADR-001-adaptive-dashboard.md)
 - [일정 기반 가족 상태 결정](docs/decisions/ADR-002-schedule-based-family-status.md)
+- [일정 대상 가족 구조 결정](docs/decisions/ADR-003-multi-participant-schedule.md)
 
 ## 문서 작성 원칙
 
