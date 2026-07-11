@@ -19,6 +19,7 @@
 - [품질 요구사항](docs/05-quality-requirements.md)
 - [위험 목록](docs/06-risk-register.md)
 - [용어집](docs/07-glossary.md)
+- [배포 환경](docs/08-deployment-environment.md)
 - [설계 결정 기록](docs/decisions/ADR-001-adaptive-dashboard.md)
 - [일정 기반 가족 상태 결정](docs/decisions/ADR-002-schedule-based-family-status.md)
 
