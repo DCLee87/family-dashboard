@@ -25,6 +25,7 @@
 - [일정 대상 가족 구조 결정](docs/decisions/ADR-003-multi-participant-schedule.md)
 - [반복 일정 범위 결정](docs/decisions/ADR-004-recurring-schedule-scope.md)
 - [겹치는 일정 처리 결정](docs/decisions/ADR-005-overlapping-schedules.md)
+- [일정 공개 범위 결정](docs/decisions/ADR-006-schedule-visibility.md)
 
 ## 문서 작성 원칙
 
