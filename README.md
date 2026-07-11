@@ -15,10 +15,10 @@
 - [기기와 권한](docs/03-device-and-permissions.md)
 - [기능 요구사항](docs/04-functional-requirements.md)
 - [설계 결정 기록](docs/decisions/ADR-001-adaptive-dashboard.md)
+- [일정 기반 가족 상태 결정](docs/decisions/ADR-002-schedule-based-family-status.md)
 
 ## 문서 작성 원칙
 
 - 합의된 사항과 미결정 사항을 구분한다.
 - 주소, 실제 위치, 비밀번호, PIN 등의 비밀값은 저장소에 기록하지 않는다.
 - 중요한 설계 결정은 ADR로 이유와 함께 남긴다.
-
