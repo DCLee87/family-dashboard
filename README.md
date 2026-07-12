@@ -4,7 +4,7 @@
 
 ## 현재 단계
 
-- UP Inception: 비전, 범위, 핵심 요구사항 및 위험 분석
+- UP Elaboration: 아키텍처와 주요 기술 위험 검증
 - 구현 및 기술 스택은 미정
 - 시놀로지 2베이 NAS를 운영 서버로 사용하는 것을 목표로 함
 
@@ -21,6 +21,9 @@
 - [용어집](docs/07-glossary.md)
 - [배포 환경](docs/08-deployment-environment.md)
 - [시스템 구성](docs/09-system-context.md)
+- [핵심 유스케이스 목록](docs/10-use-case-catalog.md)
+- [E1 최소 실행 설계](docs/architecture/e1-minimal-runtime.md)
+- [최초 설정 가이드](docs/guides/initial-setup.md)
 - [설계 결정 기록](docs/decisions/ADR-001-adaptive-dashboard.md)
 - [일정 기반 가족 상태 결정](docs/decisions/ADR-002-schedule-based-family-status.md)
 - [일정 대상 가족 구조 결정](docs/decisions/ADR-003-multi-participant-schedule.md)
@@ -34,6 +37,15 @@
 - [Web Push 알림 결정](docs/decisions/ADR-011-web-push-notifications.md)
 - [할 일 기본 구조 결정](docs/decisions/ADR-012-task-model.md)
 - [반복 할 일 결정](docs/decisions/ADR-013-recurring-tasks.md)
+- [할 일 알림 결정](docs/decisions/ADR-014-task-notifications.md)
+- [완료 할 일 보관 결정](docs/decisions/ADR-015-completed-task-retention.md)
+- [공지·메모 통합 결정](docs/decisions/ADR-016-board-items.md)
+- [장소 기반 날씨 결정](docs/decisions/ADR-017-place-based-weather.md)
+- [외부 접속 보안 원칙](docs/decisions/ADR-018-secure-remote-access.md)
+- [부모 모바일 등록 결정](docs/decisions/ADR-019-parent-device-enrollment.md)
+- [TV·공용 태블릿 등록 결정](docs/decisions/ADR-020-shared-device-enrollment.md)
+- [최초 신뢰 PC 설정 결정](docs/decisions/ADR-021-initial-trusted-pc.md)
+- [E1 기술 스택 결정](docs/decisions/ADR-022-e1-technology-stack.md)
 
 ## 문서 작성 원칙
 

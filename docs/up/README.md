@@ -4,8 +4,8 @@
 
 | 단계 | 상태 | 산출물 인덱스 |
 |---|---|---|
-| Inception | 진행 중 | [01-inception](01-inception/README.md) |
-| Elaboration | 시작 전 | [02-elaboration](02-elaboration/README.md) |
+| Inception | 완료 | [01-inception](01-inception/README.md) |
+| Elaboration | 진행 중 | [02-elaboration](02-elaboration/README.md) |
 | Construction | 시작 전 | [03-construction](03-construction/README.md) |
 | Transition | 시작 전 | [04-transition](04-transition/README.md) |
 
@@ -15,4 +15,3 @@
 - `진행 중`: 산출물 작성 또는 검토 중
 - `검토 대기`: 종료 조건 충족 여부를 이해관계자가 확인해야 함
 - `완료`: 종료 조건이 합의되어 다음 단계 기준선으로 사용 가능
-
