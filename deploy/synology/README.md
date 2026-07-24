@@ -32,4 +32,4 @@ sh e1-verify.sh
 sh e1-monitor.sh
 ```
 
-`e1-monitor.sh`는 중단할 때까지 60초마다 컨테이너 상태와 자원 사용량을 기록한다. 24시간 시험 결과는 `docs/up/02-elaboration/e1-verification.md`에 옮겨 적는다.
+`e1-monitor.sh`는 기본적으로 24시간 동안 60초마다 컨테이너 상태와 자원 사용량을 기록한다. `MONITOR_DURATION_SECONDS`와 `MONITOR_INTERVAL_SECONDS`로 시험 시간을 조정할 수 있다. 결과는 `docs/up/02-elaboration/e1-verification.md`에 옮겨 적는다.
