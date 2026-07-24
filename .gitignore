@@ -1,17 +1,12 @@
-# Secrets and local configuration
-.env
-.env.*
-!.env.example
-secrets/
-
-# Dependencies and build outputs
-node_modules/
-dist/
-build/
-
-# Editors and operating systems
-.idea/
-.vscode/
 .DS_Store
-Thumbs.db
+.env
+runtime/
+*.db
+*.db-shm
+*.db-wal
+web/node_modules/
+web/dist/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+web/*.tsbuildinfo
 
