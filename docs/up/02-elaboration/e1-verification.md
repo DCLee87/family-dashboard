@@ -29,7 +29,9 @@
 | 컨테이너 재생성 | 통과 | `startCount` 6→7, SQLite 데이터 유지 |
 | SQLite 무결성 검사 | 통과 | 재생성 후 `--check-db` 성공 |
 | linux/amd64 Go 교차 컴파일 | 통과 | 정적 x86-64 ELF 생성 |
-| linux/amd64 전체 이미지 빌드 | 보류 | Mac QEMU에서 amd64 Go 도구체인 충돌, NAS에서 재검증 |
+| linux/amd64 전체 이미지 빌드 | 통과 | Buildx 네이티브 빌드 단계와 Go 교차 컴파일 |
+| linux/amd64 이미지 실행 | 통과 | Mac 에뮬레이션에서 API·SQLite 무결성 확인 |
+| NAS 전송 패키지 생성 | 통과 | 이미지 tar, Compose와 검증 스크립트 포함 |
 | endpoint 수동 확인 | 통과 | health, runtime, 정적 HTML 응답 확인 |
 
 ## NAS 실측
@@ -37,7 +39,7 @@
 아래 항목은 DS216+II에서 직접 측정하기 전까지 완료하지 않는다.
 
 ```text
-이미지 크기: 4,209,543 bytes (Mac arm64)
+이미지 크기: 4,209,543 bytes (Mac arm64), 4,540,532 bytes (NAS amd64)
 시작 시간: 1초 이내 (Mac Colima)
 유휴 메모리: 약 2 MiB (Mac Colima)
 정상 요청 메모리:
@@ -51,7 +53,7 @@ SQLite 무결성: 통과 (Mac Colima)
 
 ## 남은 검증
 
-- [ ] DS216+II에서 linux/amd64 이미지 빌드·실행
+- [ ] DS216+II에서 사전 빌드한 linux/amd64 이미지 로드·실행
 - [ ] DS216+II에서 컨테이너 재생성 후 SQLite 영속성
 - [ ] DS216+II에서 정상·비정상 종료 후 DB 무결성
 - [ ] NAS 재부팅 후 자동 복구

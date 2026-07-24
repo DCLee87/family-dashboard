@@ -57,7 +57,7 @@ DS216+II에서 실행 가능한 최소 아키텍처와 자원 예산을 검증�
 ### 현재 장애
 
 - Mac Colima에서 arm64 이미지·Compose·SQLite 영속성 검증 완료
-- Mac QEMU의 amd64 Go 도구체인 충돌로 linux/amd64 전체 이미지 검증은 DS216+II에서 수행
+- Buildx로 linux/amd64 이미지와 NAS 전송 패키지 생성·에뮬레이션 실행 검증 완료
 - DS216+II 실기기에서 재시작·영속성·자원·24시간 시험 필요
 - 세부 결과는 [E1 검증 기록](e1-verification.md)에서 관리
 

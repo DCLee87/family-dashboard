@@ -11,6 +11,8 @@ ADR-022가 React 정적 화면, Go 단일 프로세스와 SQLite를 E1 기술 �
 
 - SQLite는 CGO가 필요 없는 `modernc.org/sqlite`를 사용해 amd64 Linux 정적 빌드를 단순화한다.
 - Vite 결과물을 Go `embed`로 실행 파일에 포함하며 런타임에는 Node.js와 별도 정적 파일 볼륨을 두지 않는다.
+- 멀티플랫폼 이미지는 Buildx가 빌드 단계를 개발 기기 아키텍처에서 실행하고 Go를 목표 아키텍처로 교차 컴파일한다.
+- DS216+II에서는 빌드하지 않고 Mac에서 생성한 `linux/amd64` 이미지 보관 파일을 로드한다.
 - SQLite 연결은 E1의 단일 쓰기 성격에 맞춰 한 개로 제한하고 WAL, 외래 키와 5초 busy timeout을 설정한다.
 - `/api/health`는 프로세스와 DB 연결 상태만, `/api/runtime`은 버전·가동 시간·누적 시작 횟수만 반환한다.
 - `--check-db`는 무결성만 검사하며 누적 시작 횟수를 증가시키지 않는다.
@@ -23,4 +25,5 @@ ADR-022가 React 정적 화면, Go 단일 프로세스와 SQLite를 E1 기술 �
 - NAS 볼륨은 UID `10001`의 쓰기 권한을 사전에 준비해야 한다.
 - scratch 이미지에는 셸과 진단 도구가 없으므로 상태 확인은 실행 파일의 `--check-db`와 HTTP endpoint를 사용한다.
 - Mac Colima에서 arm64 Docker 이미지와 Compose를 검증했다.
-- linux/amd64 Go 실행 파일 교차 컴파일은 성공했지만 QEMU 전체 이미지 빌드 중 amd64 Go 도구체인이 충돌해 실제 DS216+II에서 최종 검증해야 한다.
+- Buildx로 linux/amd64 전체 이미지를 생성하고 Mac 에뮬레이션에서 API와 SQLite 무결성을 검증했다.
+- 새 데이터 볼륨은 root 소유이므로 실행 전 UID `10001` 쓰기 권한을 반드시 설정해야 한다.
