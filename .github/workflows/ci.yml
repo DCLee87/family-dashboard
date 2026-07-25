@@ -50,6 +50,11 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      - name: Prepare web embed directory
+        run: |
+          mkdir -p internal/webui/dist
+          touch internal/webui/dist/placeholder.txt
+
       - name: Run tests
         run: go test ./...
 
