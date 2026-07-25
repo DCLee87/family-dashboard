@@ -1,5 +1,7 @@
 # Family Dashboard
 
+[![CI](https://github.com/DCLee87/family-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/DCLee87/family-dashboard/actions/workflows/ci.yml)
+
 가족 구성원이 일정, 할 일, 공지, 날씨와 위치 상태를 안전하게 공유하는 가정용 대시보드입니다.
 
 ## 현재 단계
