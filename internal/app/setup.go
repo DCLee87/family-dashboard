@@ -37,25 +37,8 @@ func (a *App) setupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) currentDevice(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("family_dashboard_device")
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"status": "unauthorized"})
-		return
-	}
-	device, err := a.db.DeviceByAccessToken(
-		r.Context(),
-		security.TokenHash(cookie.Value),
-		time.Now().UTC(),
-	)
-	if err != nil {
-		if !errors.Is(err, database.ErrUnauthenticated) {
-			a.logger.Error("device authentication failed", "error", err)
-		}
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"status": "unauthorized"})
-		return
-	}
-	if device.LocalOnly && !requestInNetworks(r, a.config.LocalNetworks) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"status": "unauthorized"})
+	device, ok := a.authenticatedDevice(w, r)
+	if !ok {
 		return
 	}
 	owner := ""
@@ -73,7 +56,7 @@ func (a *App) currentDevice(w http.ResponseWriter, r *http.Request) {
 		},
 		"permissions": map[string]bool{
 			"view":           true,
-			"admin":          false,
+			"admin":          a.adminSessionActive(r, device.ID),
 			"canUnlockAdmin": device.Type != "tv",
 		},
 	})

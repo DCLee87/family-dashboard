@@ -18,6 +18,19 @@ type SetupResult = {
   };
 };
 
+type DeviceAuth = {
+  status: "authenticated";
+  device: {
+    name: string;
+    type: string;
+  };
+  permissions: {
+    view: boolean;
+    admin: boolean;
+    canUnlockAdmin: boolean;
+  };
+};
+
 const initialHealth: Health = { status: "loading", database: "loading" };
 
 export default function App() {
@@ -25,13 +38,15 @@ export default function App() {
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
+  const [deviceAuth, setDeviceAuth] = useState<DeviceAuth | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [healthResponse, runtimeResponse, setupResponse] = await Promise.all([
+      const [healthResponse, runtimeResponse, setupResponse, deviceResponse] = await Promise.all([
         fetch("/api/health", { cache: "no-store" }),
         fetch("/api/runtime", { cache: "no-store" }),
         fetch("/api/setup/status", { cache: "no-store" }),
+        fetch("/api/auth/device", { cache: "no-store" }),
       ]);
       if (!healthResponse.ok || !runtimeResponse.ok || !setupResponse.ok) {
         throw new Error("unavailable");
@@ -40,6 +55,7 @@ export default function App() {
       setRuntime(await runtimeResponse.json());
       const setup = await setupResponse.json() as { setupRequired: boolean };
       setSetupRequired(setup.setupRequired);
+      setDeviceAuth(deviceResponse.ok ? await deviceResponse.json() : null);
     } catch {
       setHealth({ status: "error", database: "error" });
       setRuntime(null);
@@ -96,10 +112,136 @@ export default function App() {
         </article>
       </section>
 
+      <AdminControl auth={deviceAuth} onChanged={refresh} />
+
       <footer>
         마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"} · 30초마다 자동 갱신
       </footer>
     </main>
+  );
+}
+
+function AdminControl({
+  auth,
+  onChanged,
+}: {
+  auth: DeviceAuth | null;
+  onChanged: () => Promise<void>;
+}) {
+  const [showUnlock, setShowUnlock] = useState(false);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!auth) {
+    return (
+      <section className="admin-card">
+        <div>
+          <p className="label">기기 인증</p>
+          <strong>등록되지 않은 브라우저</strong>
+          <p>이 기기에서는 가족 정보와 관리자 기능을 사용할 수 없습니다.</p>
+        </div>
+      </section>
+    );
+  }
+
+  async function unlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/admin/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
+      });
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error("PIN 입력이 5회 실패해 5분 동안 잠겼습니다.");
+        }
+        if (response.status === 401) {
+          throw new Error("PIN이 올바르지 않습니다.");
+        }
+        throw new Error("관리자 모드를 열지 못했습니다.");
+      }
+      setPin("");
+      setShowUnlock(false);
+      await onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "관리자 모드를 열지 못했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function lock() {
+    setError("");
+    setSubmitting(true);
+    try {
+      const csrf = readCookie("family_dashboard_csrf");
+      const response = await fetch("/api/admin/lock", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrf },
+      });
+      if (!response.ok) throw new Error("관리자 모드를 잠그지 못했습니다.");
+      await onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "관리자 모드를 잠그지 못했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className={`admin-card ${auth.permissions.admin ? "admin-active" : ""}`}>
+      <div>
+        <p className="label">현재 기기</p>
+        <strong>{auth.device.name}</strong>
+        <p>
+          {auth.permissions.admin
+            ? "관리자 모드가 열려 있습니다. 마지막 관리자 작업 후 10분이 지나면 자동으로 잠깁니다."
+            : "보기 모드입니다. 설정을 변경할 때만 관리자 모드를 여세요."}
+        </p>
+      </div>
+      {auth.permissions.admin ? (
+        <button type="button" disabled={submitting} onClick={() => void lock()}>
+          지금 잠그기
+        </button>
+      ) : auth.permissions.canUnlockAdmin && !showUnlock ? (
+        <button type="button" onClick={() => setShowUnlock(true)}>관리자 모드 열기</button>
+      ) : null}
+      {showUnlock && !auth.permissions.admin && (
+        <form className="unlock-form" onSubmit={unlock}>
+          <label>
+            <span>관리자 PIN</span>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="current-password"
+              maxLength={4}
+              pattern="[0-9]{4}"
+              value={pin}
+              onChange={(event) => setPin(event.target.value)}
+              autoFocus
+              required
+            />
+          </label>
+          <div className="button-row">
+            <button type="submit" disabled={submitting}>
+              {submitting ? "확인 중…" : "열기"}
+            </button>
+            <button type="button" className="secondary" onClick={() => {
+              setShowUnlock(false);
+              setPin("");
+              setError("");
+            }}>
+              취소
+            </button>
+          </div>
+        </form>
+      )}
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </section>
   );
 }
 
@@ -246,4 +388,10 @@ function formatDuration(totalSeconds: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return hours > 0 ? `${hours}시간 ${minutes}분` : `${minutes}분 ${seconds}초`;
+}
+
+function readCookie(name: string) {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const value = document.cookie.split("; ").find((item) => item.startsWith(prefix));
+  return value ? decodeURIComponent(value.slice(prefix.length)) : "";
 }

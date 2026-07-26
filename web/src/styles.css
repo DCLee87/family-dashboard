@@ -133,12 +133,48 @@ button:disabled { cursor: wait; opacity: .65; }
 .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
 .metrics article { min-height: 140px; padding: 24px; border-top: 1px solid rgba(22,48,45,.22); }
 .metrics strong { display: block; margin-top: 24px; font-size: 1.15rem; }
+.admin-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+  margin-top: 28px;
+  padding: 26px 30px;
+  border: 1px solid rgba(22,48,45,.14);
+  border-radius: 22px;
+  background: rgba(255,255,255,.58);
+}
+.admin-card.admin-active {
+  border-color: rgba(46,128,108,.35);
+  background: rgba(229,244,237,.8);
+}
+.admin-card strong { display: block; font-size: 1.3rem; }
+.admin-card p:not(.label, .form-error) {
+  max-width: 650px;
+  margin: 8px 0 0;
+  color: #687871;
+  line-height: 1.55;
+}
+.unlock-form { grid-column: 1 / -1; display: grid; gap: 14px; }
+.unlock-form label { display: grid; gap: 8px; max-width: 280px; }
+.unlock-form label span { color: #435b55; font-size: .9rem; font-weight: 700; }
+.unlock-form input {
+  border: 1px solid rgba(22,48,45,.22);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: white;
+  font: inherit;
+}
+.button-row { display: flex; gap: 10px; }
+button.secondary { color: #16302d; background: rgba(22,48,45,.08); }
+button.secondary:hover { background: rgba(22,48,45,.14); }
 footer { margin-top: 48px; color: #78847e; font-size: .85rem; }
 
 @media (max-width: 720px) {
   main { width: min(100% - 28px, 1100px); }
   .status-card { align-items: stretch; flex-direction: column; }
   .metrics { grid-template-columns: 1fr 1fr; }
+  .admin-card { grid-template-columns: 1fr; align-items: stretch; }
   .setup-layout { grid-template-columns: 1fr; }
   .setup-intro { position: static; margin-bottom: 0; }
 }
