@@ -71,6 +71,64 @@ button {
   cursor: pointer;
 }
 button:hover { background: #2e5650; }
+button:disabled { cursor: wait; opacity: .65; }
+
+.setup-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 480px);
+  gap: clamp(32px, 7vw, 96px);
+  align-items: start;
+}
+.setup-intro { position: sticky; top: 64px; }
+.setup-card {
+  display: grid;
+  gap: 22px;
+  padding: clamp(24px, 5vw, 40px);
+  border: 1px solid rgba(22,48,45,.14);
+  border-radius: 28px;
+  background: rgba(255,255,255,.78);
+  box-shadow: 0 24px 70px rgba(37,58,51,.09);
+  backdrop-filter: blur(16px);
+}
+.setup-card label { display: grid; gap: 8px; }
+.setup-card label span { color: #435b55; font-size: .9rem; font-weight: 700; }
+.setup-card input {
+  width: 100%;
+  border: 1px solid rgba(22,48,45,.22);
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: #16302d;
+  background: rgba(255,255,255,.9);
+  font: inherit;
+  outline: none;
+}
+.setup-card input:focus {
+  border-color: #2e806c;
+  box-shadow: 0 0 0 4px rgba(46,128,108,.12);
+}
+.pin-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.security-note { margin: 0; color: #687871; font-size: .88rem; line-height: 1.6; }
+.form-error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: #8b3427;
+  background: rgba(196,91,70,.12);
+  font-size: .9rem;
+}
+.recovery-card { grid-column: 1 / -1; width: min(680px, 100%); margin: 0 auto; }
+.recovery-card h1 { font-size: clamp(2.5rem, 7vw, 4.5rem); }
+.recovery-code {
+  overflow-wrap: anywhere;
+  padding: 22px;
+  border: 1px dashed rgba(22,48,45,.35);
+  border-radius: 16px;
+  color: #16302d;
+  background: #f7f3e9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
 
 .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
 .metrics article { min-height: 140px; padding: 24px; border-top: 1px solid rgba(22,48,45,.22); }
@@ -81,9 +139,12 @@ footer { margin-top: 48px; color: #78847e; font-size: .85rem; }
   main { width: min(100% - 28px, 1100px); }
   .status-card { align-items: stretch; flex-direction: column; }
   .metrics { grid-template-columns: 1fr 1fr; }
+  .setup-layout { grid-template-columns: 1fr; }
+  .setup-intro { position: static; margin-bottom: 0; }
 }
 
 @media (max-width: 420px) {
   .metrics { grid-template-columns: 1fr; }
   .metrics article { min-height: auto; }
+  .pin-fields { grid-template-columns: 1fr; }
 }

@@ -26,6 +26,13 @@ func (a *App) setupStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"status": "error"})
 		return
 	}
+	if required {
+		if err := a.ensureInitialSetupCode(r.Context()); err != nil {
+			a.logger.Error("initial setup code refresh failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"status": "error"})
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"setupRequired": required})
 }
 
