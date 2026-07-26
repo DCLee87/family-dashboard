@@ -2,22 +2,28 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/DCLee87/family-dashboard/internal/database"
+	"github.com/DCLee87/family-dashboard/internal/security"
 	"github.com/DCLee87/family-dashboard/internal/webui"
 )
 
 type Config struct {
-	Address     string
-	DataDir     string
-	Version     string
-	StartedAt   time.Time
-	RecordStart bool
+	Address          string
+	DataDir          string
+	Version          string
+	StartedAt        time.Time
+	RecordStart      bool
+	LocalNetworks    []netip.Prefix
+	SecureCookies    bool
+	InitialSetupCode string
 }
 
 type App struct {
@@ -31,13 +37,23 @@ func New(config Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{config: config, db: db, logger: logger}, nil
+	application := &App{config: config, db: db, logger: logger}
+	if config.RecordStart {
+		if err := application.ensureInitialSetupCode(context.Background()); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	return application, nil
 }
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/runtime", a.runtime)
+	mux.HandleFunc("GET /api/setup/status", a.setupStatus)
+	mux.HandleFunc("POST /api/setup/complete", a.completeSetup)
+	mux.HandleFunc("GET /api/auth/device", a.currentDevice)
 
 	dist, err := fs.Sub(webui.Files, "dist")
 	if err != nil {
@@ -45,6 +61,34 @@ func (a *App) Handler() http.Handler {
 	}
 	mux.Handle("/", spaHandler(dist))
 	return requestLogger(a.logger, mux)
+}
+
+func (a *App) ensureInitialSetupCode(ctx context.Context) error {
+	required, err := a.db.SetupRequired(ctx)
+	if err != nil || !required {
+		return err
+	}
+	code := a.config.InitialSetupCode
+	if code == "" {
+		code = rand.Text()
+	}
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	created, err := a.db.EnsureInitialSetupCode(
+		ctx,
+		security.TokenHash(code),
+		expiresAt,
+	)
+	if err != nil {
+		return err
+	}
+	if created {
+		a.logger.Warn(
+			"initial setup required",
+			"initial_setup_code", code,
+			"expires_at", expiresAt,
+		)
+	}
+	return nil
 }
 
 func (a *App) health(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
 # E2 외부 접속 방식 비교
 
-- 상태: 검토 중
+- 상태: 권고 승인, ADR-024로 결정
 - 작성일: 2026-07-26
 - 결정 대상: ADR-018의 VPN·HTTPS Reverse Proxy 구현 방식
 
@@ -88,8 +88,9 @@ E2 기본 경로는 **Tailscale + Tailscale Serve**로 한다.
 5. 부모 모바일의 VPN 사용성과 Push 링크 동작이 요구를 충족하지 못할 때만
    공개 Reverse Proxy를 다시 평가한다.
 
-이 권고는 NAS 패키지 설치 가능 여부, Tailscale Serve 지원 버전, iOS·Android
-실사용성과 재부팅 후 자동 복구를 시험한 뒤 ADR로 확정한다.
+이 권고는 ADR-024로 승인했다. NAS 패키지 설치 가능 여부, Tailscale Serve
+지원 버전, iOS·Android 실사용성과 재부팅 후 자동 복구는 결정의 실기기
+검증 항목으로 남긴다.
 
 ## E2 시험 항목
 

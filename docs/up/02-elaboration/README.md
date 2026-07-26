@@ -75,6 +75,8 @@ PIN과 원격 접속 방식을 설계·검증한다.
 - [E2 위협 모델 초안](../../architecture/e2-threat-model.md)
 - [E2 보안 요구사항 추적표](e2-security-traceability.md)
 - [E2 외부 접속 방식 비교](../../architecture/e2-external-access-comparison.md)
+- [E2 기기 인증 설계](../../architecture/e2-authentication-design.md)
+- [ADR-024: E2 사설 외부 접속 기준선](../../decisions/ADR-024-e2-private-remote-access.md)
 
 ## 종료 조건
 

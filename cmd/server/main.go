@@ -6,8 +6,11 @@ import (
 	"flag"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,12 +25,24 @@ func main() {
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	localNetworks, err := parsePrefixes(os.Getenv("FAMILY_DASHBOARD_LOCAL_NETWORKS"))
+	if err != nil {
+		logger.Error("invalid local network configuration", "error", err)
+		os.Exit(1)
+	}
+	secureCookies, err := envBool("FAMILY_DASHBOARD_SECURE_COOKIES", true)
+	if err != nil {
+		logger.Error("invalid secure cookie configuration", "error", err)
+		os.Exit(1)
+	}
 	cfg := app.Config{
-		Address:     env("FAMILY_DASHBOARD_ADDRESS", ":8080"),
-		DataDir:     env("FAMILY_DASHBOARD_DATA_DIR", "./runtime/data"),
-		Version:     version,
-		StartedAt:   time.Now().UTC(),
-		RecordStart: !checkDB,
+		Address:       env("FAMILY_DASHBOARD_ADDRESS", ":8080"),
+		DataDir:       env("FAMILY_DASHBOARD_DATA_DIR", "./runtime/data"),
+		Version:       version,
+		StartedAt:     time.Now().UTC(),
+		RecordStart:   !checkDB,
+		LocalNetworks: localNetworks,
+		SecureCookies: secureCookies,
 	}
 
 	application, err := app.New(cfg, logger)
@@ -88,4 +103,32 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) (bool, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, err
+	}
+	return parsed, nil
+}
+
+func parsePrefixes(value string) ([]netip.Prefix, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	values := strings.Split(value, ",")
+	prefixes := make([]netip.Prefix, 0, len(values))
+	for _, item := range values {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(item))
+		if err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }

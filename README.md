@@ -7,8 +7,8 @@
 ## 현재 단계
 
 - UP Elaboration: 아키텍처와 주요 기술 위험 검증
-- E1 기술 스택: React·TypeScript PWA, Go 단일 서버, SQLite
-- Mac에서 E1 최소 골격 구현 및 프런트엔드 빌드 검증
+- E1 완료: React·TypeScript PWA, Go 단일 서버, SQLite와 NAS 기준선
+- E2 진행 중: 위협 모델, 사설 HTTPS 외부 접속과 등록 기기 인증
 - 시놀로지 2베이 NAS를 운영 서버로 사용하는 것을 목표로 함
 
 ## E1 로컬 실행
@@ -40,7 +40,20 @@ mkdir -p runtime/data
 docker compose up --build
 ```
 
-E1에는 인증과 HTTPS가 없으므로 `8080` 포트를 인터넷에 공개하지 않는다.
+E2 프로토타입에는 다음 상태 API가 추가됐다.
+
+```sh
+curl http://localhost:8080/api/setup/status
+```
+
+최초 설정 변경 API는 `FAMILY_DASHBOARD_LOCAL_NETWORKS`에 명시된 CIDR의
+요청만 허용한다. 값이 없으면 기본 거부한다. HTTP 로컬 개발에서만
+`FAMILY_DASHBOARD_SECURE_COOKIES=false`를 사용할 수 있으며, 실제 운영은
+HTTPS와 Secure 쿠키를 사용한다. 초기 설정 코드는 최초 실행 시 보호된 운영
+로그에 한 번 표시되므로 채팅, Git 또는 문서에 복사하지 않는다.
+
+E2 인증·거부 시험과 Tailscale HTTPS 검증이 끝나지 않았으므로 `8080`과 DSM
+관리 포트를 인터넷에 공개하지 않는다.
 
 ## 문서
 
@@ -81,6 +94,9 @@ E1에는 인증과 HTTPS가 없으므로 `8080` 포트를 인터넷에 공개하
 - [최초 신뢰 PC 설정 결정](docs/decisions/ADR-021-initial-trusted-pc.md)
 - [E1 기술 스택 결정](docs/decisions/ADR-022-e1-technology-stack.md)
 - [E1 런타임 구현 결정](docs/decisions/ADR-023-e1-runtime-implementation.md)
+- [E2 사설 외부 접속 결정](docs/decisions/ADR-024-e2-private-remote-access.md)
+- [E2 기기 인증 설계](docs/architecture/e2-authentication-design.md)
+- [E2 보안 요구사항 추적표](docs/up/02-elaboration/e2-security-traceability.md)
 - [E1 검증 기록](docs/up/02-elaboration/e1-verification.md)
 - [Synology E1 검증 가이드](deploy/synology/README.md)
 
