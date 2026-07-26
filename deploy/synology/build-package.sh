@@ -31,6 +31,7 @@ docker image inspect "$image" --format '{{.Architecture}} {{.Os}} {{.Size}}'
 docker save "$image" -o "${output_dir}/family-dashboard-e2-amd64.tar"
 
 cp "${repository_root}/deploy/synology/compose.yaml" "${output_dir}/compose.yaml"
+cp "${repository_root}/deploy/synology/e2-deploy.sh" "${output_dir}/e2-deploy.sh"
 cp "${repository_root}/deploy/synology/e1-verify.sh" "${output_dir}/e1-verify.sh"
 cp "${repository_root}/deploy/synology/e1-monitor.sh" "${output_dir}/e1-monitor.sh"
 

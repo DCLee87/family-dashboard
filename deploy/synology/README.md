@@ -26,15 +26,16 @@ sh deploy/synology/build-package.sh
 
 ## NAS에서 실행
 
-패키지 디렉터리를 NAS로 복사한 뒤:
+패키지 디렉터리를 NAS의 사용자 홈으로 복사한 뒤:
 
 ```sh
-mkdir -p data
-sudo chown 10001:10001 data
-docker load -i family-dashboard-e2-amd64.tar
-docker compose up -d
-sh e1-verify.sh
+sudo sh e2-deploy.sh
 ```
+
+스크립트는 컨테이너를 정지한 상태에서 SQLite의 DB/WAL/SHM과 기존 Compose를
+`backups/pre-e2-<UTC 시각>`에 복사한다. 이후 E2 이미지를 로드하고, 호스트의
+`8080`을 loopback에만 바인딩하며, 실제 Compose 네트워크 CIDR을 최초 설정
+허용 범위로 기록한다. 백업 디렉터리를 확인하기 전에는 삭제하지 않는다.
 
 E1의 24시간·부하·재시작 검증은 이미 완료되었다. E2 배포 후에는 HTTPS,
 최초 신뢰 기기 등록, 인증 쿠키와 기존 SQLite 데이터 마이그레이션을 별도로
