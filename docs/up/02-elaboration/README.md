@@ -73,6 +73,8 @@ PIN과 원격 접속 방식을 설계·검증한다.
 
 - [E2 작업 계획](e2-plan.md)
 - [E2 위협 모델 초안](../../architecture/e2-threat-model.md)
+- [E2 보안 요구사항 추적표](e2-security-traceability.md)
+- [E2 외부 접속 방식 비교](../../architecture/e2-external-access-comparison.md)
 
 ## 종료 조건
 
