@@ -1,0 +1,9 @@
+{
+  "name": "우리 가족 대시보드",
+  "short_name": "가족 대시보드",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3efe5",
+  "theme_color": "#152c2a",
+  "lang": "ko"
+}

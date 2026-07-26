@@ -1,12 +1,46 @@
 # Family Dashboard
 
+[![CI](https://github.com/DCLee87/family-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/DCLee87/family-dashboard/actions/workflows/ci.yml)
+
 가족 구성원이 일정, 할 일, 공지, 날씨와 위치 상태를 안전하게 공유하는 가정용 대시보드입니다.
 
 ## 현재 단계
 
 - UP Elaboration: 아키텍처와 주요 기술 위험 검증
-- 구현 및 기술 스택은 미정
+- E1 기술 스택: React·TypeScript PWA, Go 단일 서버, SQLite
+- Mac에서 E1 최소 골격 구현 및 프런트엔드 빌드 검증
 - 시놀로지 2베이 NAS를 운영 서버로 사용하는 것을 목표로 함
+
+## E1 로컬 실행
+
+필요 도구는 Node.js 22+, Go 1.26+다. 전체 컨테이너 검증에는 Docker Compose가 추가로 필요하다.
+
+```sh
+cd web
+npm install
+npm run build
+cd ..
+
+go mod tidy
+go test ./...
+go run ./cmd/server
+```
+
+다른 터미널에서 상태를 확인한다.
+
+```sh
+curl http://localhost:8080/api/health
+curl http://localhost:8080/api/runtime
+```
+
+컨테이너 실행:
+
+```sh
+mkdir -p runtime/data
+docker compose up --build
+```
+
+E1에는 인증과 HTTPS가 없으므로 `8080` 포트를 인터넷에 공개하지 않는다.
 
 ## 문서
 
@@ -46,6 +80,9 @@
 - [TV·공용 태블릿 등록 결정](docs/decisions/ADR-020-shared-device-enrollment.md)
 - [최초 신뢰 PC 설정 결정](docs/decisions/ADR-021-initial-trusted-pc.md)
 - [E1 기술 스택 결정](docs/decisions/ADR-022-e1-technology-stack.md)
+- [E1 런타임 구현 결정](docs/decisions/ADR-023-e1-runtime-implementation.md)
+- [E1 검증 기록](docs/up/02-elaboration/e1-verification.md)
+- [Synology E1 검증 가이드](deploy/synology/README.md)
 
 ## 문서 작성 원칙
 
