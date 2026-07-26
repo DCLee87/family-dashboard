@@ -183,6 +183,58 @@ func (a *App) adminSessionActive(r *http.Request, deviceID string) bool {
 	return active
 }
 
+func (a *App) requireAdmin(
+	w http.ResponseWriter,
+	r *http.Request,
+	stateChange bool,
+) (database.Device, bool) {
+	device, ok := a.authenticatedDevice(w, r)
+	if !ok {
+		return database.Device{}, false
+	}
+	if device.Type != "trusted_pc" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden"})
+		return database.Device{}, false
+	}
+	_, sessionHash, ok := adminSessionCookie(r)
+	if !ok {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "admin_required"})
+		return database.Device{}, false
+	}
+	var csrfHash *[32]byte
+	if stateChange {
+		if !validSameOrigin(r, a.config.SecureCookies) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden"})
+			return database.Device{}, false
+		}
+		csrf := r.Header.Get("X-CSRF-Token")
+		if csrf == "" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden"})
+			return database.Device{}, false
+		}
+		hash := security.TokenHash(csrf)
+		csrfHash = &hash
+	}
+	active, err := a.db.ValidateAdminSession(
+		r.Context(),
+		device.ID,
+		sessionHash,
+		csrfHash,
+		time.Now().UTC(),
+		true,
+	)
+	if err != nil {
+		a.logger.Error("administrator authorization failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"status": "error"})
+		return database.Device{}, false
+	}
+	if !active {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "admin_required"})
+		return database.Device{}, false
+	}
+	return device, true
+}
+
 func adminSessionCookie(r *http.Request) (*http.Cookie, [32]byte, bool) {
 	cookie, err := r.Cookie("family_dashboard_admin")
 	if err != nil || cookie.Value == "" {

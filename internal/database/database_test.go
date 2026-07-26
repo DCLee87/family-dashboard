@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -197,5 +198,86 @@ func TestDatabaseMigratesE1Schema(t *testing.T) {
 	}
 	if version != 2 {
 		t.Fatalf("migrated schema version: got %d, want 2", version)
+	}
+}
+
+func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	database, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	setupCode := [32]byte{1}
+	if _, err := database.EnsureInitialSetupCode(ctx, setupCode, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	pcAccess := [32]byte{2}
+	if err := database.CompleteInitialSetup(ctx, InitialSetup{
+		CodeHash: setupCode, PINHash: "test-pin-hash", DeviceID: "trusted-pc",
+		DeviceName: "Home Mac", AccessID: "pc-access", AccessHash: pcAccess,
+		AccessExpiresAt: now.Add(time.Hour), RefreshID: "pc-refresh",
+		RefreshHash: [32]byte{3}, RefreshFamilyID: "pc-family",
+		RefreshExpiresAt: now.Add(time.Hour), RecoveryID: "recovery",
+		RecoveryHash: [32]byte{4}, Now: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	codeHash := [32]byte{5}
+	if err := database.CreateEnrollment(
+		ctx, "enrollment", codeHash, "parent_mobile", now.Add(10*time.Minute), now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	claimHash := [32]byte{6}
+	submitted, err := database.SubmitEnrollment(
+		ctx, codeHash, claimHash, "Dad Phone", "dad", now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submitted.Status != "submitted" || submitted.Owner.String != "dad" {
+		t.Fatalf("unexpected submission: %#v", submitted)
+	}
+	if _, err := database.SubmitEnrollment(
+		ctx, codeHash, [32]byte{7}, "Other Phone", "mom", now,
+	); !errors.Is(err, ErrInvalidEnrollment) {
+		t.Fatalf("enrollment code reuse: got %v, want %v", err, ErrInvalidEnrollment)
+	}
+	if err := database.ApproveEnrollment(ctx, "enrollment", "trusted-pc", now); err != nil {
+		t.Fatal(err)
+	}
+
+	mobileAccess := [32]byte{8}
+	mobileSetup := InitialSetup{
+		DeviceID: "dad-phone", AccessID: "mobile-access", AccessHash: mobileAccess,
+		AccessExpiresAt: now.Add(time.Hour), RefreshID: "mobile-refresh",
+		RefreshHash: [32]byte{9}, RefreshFamilyID: "mobile-family",
+		RefreshExpiresAt: now.Add(time.Hour), Now: now,
+	}
+	if err := database.CompleteEnrollment(
+		ctx, claimHash, [32]byte{10}, mobileSetup, "dad",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteEnrollment(
+		ctx, claimHash, [32]byte{11}, mobileSetup, "dad",
+	); !errors.Is(err, ErrInvalidEnrollment) {
+		t.Fatalf("claim reuse: got %v, want %v", err, ErrInvalidEnrollment)
+	}
+	if _, err := database.DeviceByAccessToken(ctx, mobileAccess, now); err != nil {
+		t.Fatalf("mobile credential was not active: %v", err)
+	}
+	if err := database.RevokeDevice(ctx, "dad-phone", "trusted-pc", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.DeviceByAccessToken(ctx, mobileAccess, now); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("revoked mobile credential: got %v, want %v", err, ErrUnauthenticated)
+	}
+	if _, err := database.DeviceByAccessToken(ctx, pcAccess, now); err != nil {
+		t.Fatalf("revoking mobile affected trusted PC: %v", err)
 	}
 }

@@ -56,6 +56,13 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/auth/device", a.currentDevice)
 	mux.HandleFunc("POST /api/admin/unlock", a.unlockAdmin)
 	mux.HandleFunc("POST /api/admin/lock", a.lockAdmin)
+	mux.HandleFunc("POST /api/enrollments/submit", a.submitEnrollment)
+	mux.HandleFunc("POST /api/enrollments/claim", a.claimEnrollment)
+	mux.HandleFunc("POST /api/admin/enrollments", a.createEnrollment)
+	mux.HandleFunc("GET /api/admin/enrollments", a.listEnrollments)
+	mux.HandleFunc("POST /api/admin/enrollments/{id}/approve", a.approveEnrollment)
+	mux.HandleFunc("GET /api/admin/devices", a.listDevices)
+	mux.HandleFunc("POST /api/admin/devices/{id}/revoke", a.revokeDevice)
 
 	dist, err := fs.Sub(webui.Files, "dist")
 	if err != nil {

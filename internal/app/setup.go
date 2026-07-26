@@ -142,24 +142,7 @@ func (a *App) completeSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "family_dashboard_device",
-		Value:    accessToken,
-		Path:     "/",
-		MaxAge:   int(accessLifetime.Seconds()),
-		HttpOnly: true,
-		Secure:   a.config.SecureCookies,
-		SameSite: http.SameSiteStrictMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "family_dashboard_refresh",
-		Value:    refreshToken,
-		Path:     "/api/auth",
-		MaxAge:   int(refreshLifetime.Seconds()),
-		HttpOnly: true,
-		Secure:   a.config.SecureCookies,
-		SameSite: http.SameSiteStrictMode,
-	})
+	setDeviceCookies(w, accessToken, refreshToken, a.config.SecureCookies)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"status":       "configured",
 		"recoveryCode": recoveryCode,

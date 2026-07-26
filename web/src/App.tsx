@@ -21,6 +21,7 @@ type SetupResult = {
 type DeviceAuth = {
   status: "authenticated";
   device: {
+    id: string;
     name: string;
     type: string;
   };
@@ -29,6 +30,23 @@ type DeviceAuth = {
     admin: boolean;
     canUnlockAdmin: boolean;
   };
+};
+
+type EnrollmentItem = {
+  id: string;
+  name: string;
+  owner: string;
+  status: string;
+  expiresAt: string;
+};
+
+type RegisteredDevice = {
+  id: string;
+  name: string;
+  type: string;
+  owner: string;
+  status: string;
+  lastUsedAt: string | null;
 };
 
 const initialHealth: Health = { status: "loading", database: "loading" };
@@ -69,6 +87,10 @@ export default function App() {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  if (window.location.pathname === "/enroll") {
+    return <MobileEnrollment />;
+  }
 
   if (setupRequired) {
     return <SetupScreen onComplete={() => setSetupRequired(false)} />;
@@ -240,8 +262,200 @@ function AdminControl({
           </div>
         </form>
       )}
+      {auth.permissions.admin && <DeviceManagement currentDeviceId={auth.device.id} />}
       {error && <p className="form-error" role="alert">{error}</p>}
     </section>
+  );
+}
+
+function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
+  const [code, setCode] = useState("");
+  const [enrollments, setEnrollments] = useState<EnrollmentItem[]>([]);
+  const [devices, setDevices] = useState<RegisteredDevice[]>([]);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    const [enrollmentResponse, deviceResponse] = await Promise.all([
+      fetch("/api/admin/enrollments", { cache: "no-store" }),
+      fetch("/api/admin/devices", { cache: "no-store" }),
+    ]);
+    if (!enrollmentResponse.ok || !deviceResponse.ok) return;
+    setEnrollments((await enrollmentResponse.json()).enrollments);
+    setDevices((await deviceResponse.json()).devices);
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 3_000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  async function createEnrollment() {
+    setError("");
+    const response = await adminFetch("/api/admin/enrollments");
+    if (!response.ok) {
+      setError("모바일 등록 코드를 만들지 못했습니다.");
+      return;
+    }
+    const result = await response.json();
+    setCode(result.code);
+    await refresh();
+  }
+
+  async function approve(id: string) {
+    const response = await adminFetch(`/api/admin/enrollments/${encodeURIComponent(id)}/approve`);
+    if (!response.ok) {
+      setError("등록 요청을 승인하지 못했습니다.");
+      return;
+    }
+    await refresh();
+  }
+
+  async function revoke(id: string, name: string) {
+    if (!window.confirm(`${name} 기기의 접속 권한을 폐기할까요?`)) return;
+    const response = await adminFetch(`/api/admin/devices/${encodeURIComponent(id)}/revoke`);
+    if (!response.ok) {
+      setError("기기 권한을 폐기하지 못했습니다.");
+      return;
+    }
+    await refresh();
+  }
+
+  return (
+    <div className="device-management">
+      <div className="management-heading">
+        <div>
+          <p className="label">부모 모바일 등록</p>
+          <p>모바일에서 등록 화면을 열고 일회용 코드를 입력한 뒤 여기서 승인하세요.</p>
+        </div>
+        <button type="button" onClick={() => void createEnrollment()}>등록 코드 만들기</button>
+      </div>
+      {code && (
+        <div className="enrollment-code">
+          <strong>{code}</strong>
+          <span>10분 동안 한 번만 사용할 수 있습니다.</span>
+          <a href="/enroll" target="_blank" rel="noreferrer">모바일 등록 화면 열기</a>
+        </div>
+      )}
+      {enrollments.filter((item) => item.status === "submitted").map((item) => (
+        <div className="enrollment-request" key={item.id}>
+          <div>
+            <strong>{item.name}</strong>
+            <span>{item.owner === "dad" ? "아빠" : "엄마"} 모바일 등록 요청</span>
+          </div>
+          <button type="button" onClick={() => void approve(item.id)}>승인</button>
+        </div>
+      ))}
+      <div className="device-list">
+        <p className="label">등록 기기</p>
+        {devices.map((device) => (
+          <div className="device-row" key={device.id}>
+            <div>
+              <strong>{device.name}</strong>
+              <span>
+                {device.type === "trusted_pc" ? "신뢰 PC" : "부모 모바일"}
+                {device.owner ? ` · ${device.owner === "dad" ? "아빠" : "엄마"}` : ""}
+                {device.status === "revoked" ? " · 폐기됨" : ""}
+              </span>
+            </div>
+            {device.status === "active" && device.id !== currentDeviceId && (
+              <button type="button" className="danger" onClick={() => void revoke(device.id, device.name)}>
+                폐기
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function MobileEnrollment() {
+  const [code, setCode] = useState("");
+  const [deviceName, setDeviceName] = useState("");
+  const [owner, setOwner] = useState("dad");
+  const [claimToken, setClaimToken] = useState(() => sessionStorage.getItem("family_dashboard_claim") || "");
+  const [status, setStatus] = useState(claimToken ? "PC 승인을 기다리고 있습니다." : "");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!claimToken) return;
+    let stopped = false;
+    async function claim() {
+      const response = await fetch("/api/enrollments/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claimToken }),
+      });
+      if (stopped) return;
+      if (response.status === 201) {
+        sessionStorage.removeItem("family_dashboard_claim");
+        setStatus("등록이 완료되었습니다. 대시보드로 이동합니다.");
+        window.setTimeout(() => window.location.assign("/"), 600);
+      } else if (response.status !== 202) {
+        sessionStorage.removeItem("family_dashboard_claim");
+        setClaimToken("");
+        setError("등록 요청이 만료되었거나 더 이상 유효하지 않습니다.");
+      }
+    }
+    void claim();
+    const timer = window.setInterval(() => void claim(), 2_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [claimToken]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const response = await fetch("/api/enrollments/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, deviceName, owner }),
+    });
+    if (!response.ok) {
+      setError("등록 코드가 잘못되었거나 만료되었습니다.");
+      return;
+    }
+    const result = await response.json();
+    sessionStorage.setItem("family_dashboard_claim", result.claimToken);
+    setClaimToken(result.claimToken);
+    setCode("");
+    setStatus("PC 승인을 기다리고 있습니다.");
+  }
+
+  return (
+    <main className="setup-layout mobile-enrollment">
+      <header className="setup-intro">
+        <p className="eyebrow">E2 · PARENT MOBILE</p>
+        <h1>부모 모바일 등록</h1>
+        <p className="subtitle">신뢰 PC에서 만든 일회용 코드를 입력하세요. PC의 최종 승인 후 이 기기만의 인증정보가 발급됩니다.</p>
+      </header>
+      <form className="setup-card" onSubmit={submit}>
+        <label>
+          <span>8자리 등록 코드</span>
+          <input inputMode="numeric" pattern="[0-9]{8}" maxLength={8} value={code}
+            onChange={(event) => setCode(event.target.value)} disabled={Boolean(claimToken)} required />
+        </label>
+        <label>
+          <span>기기 이름</span>
+          <input maxLength={80} placeholder="예: 아빠 iPhone" value={deviceName}
+            onChange={(event) => setDeviceName(event.target.value)} disabled={Boolean(claimToken)} required />
+        </label>
+        <label>
+          <span>사용자</span>
+          <select value={owner} onChange={(event) => setOwner(event.target.value)} disabled={Boolean(claimToken)}>
+            <option value="dad">아빠</option>
+            <option value="mom">엄마</option>
+          </select>
+        </label>
+        {status && <p className="waiting-status" role="status">{status}</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {!claimToken && <button type="submit">등록 요청 보내기</button>}
+      </form>
+    </main>
   );
 }
 
@@ -394,4 +608,11 @@ function readCookie(name: string) {
   const prefix = `${encodeURIComponent(name)}=`;
   const value = document.cookie.split("; ").find((item) => item.startsWith(prefix));
   return value ? decodeURIComponent(value.slice(prefix.length)) : "";
+}
+
+function adminFetch(path: string) {
+  return fetch(path, {
+    method: "POST",
+    headers: { "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+  });
 }
