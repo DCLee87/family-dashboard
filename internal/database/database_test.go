@@ -328,4 +328,73 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 	if active {
 		t.Fatal("read-only polling kept an idle admin session active")
 	}
+
+	rejectedCode := [32]byte{14}
+	if err := database.CreateEnrollment(
+		ctx,
+		"rejected-enrollment",
+		rejectedCode,
+		"parent_mobile",
+		now.Add(10*time.Minute),
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	rejectedClaim := [32]byte{15}
+	if _, err := database.SubmitEnrollment(
+		ctx,
+		rejectedCode,
+		rejectedClaim,
+		"Rejected Phone",
+		"mom",
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RejectEnrollment(
+		ctx,
+		"rejected-enrollment",
+		"trusted-pc",
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := database.EnrollmentByClaim(ctx, rejectedClaim, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Status != "rejected" {
+		t.Fatalf("rejected enrollment status: got %q", rejected.Status)
+	}
+	if err := database.CompleteEnrollment(
+		ctx,
+		rejectedClaim,
+		[32]byte{16},
+		mobileSetup,
+		"mom",
+	); !errors.Is(err, ErrInvalidEnrollment) {
+		t.Fatalf("rejected enrollment issued credentials: got %v", err)
+	}
+
+	expiredCode := [32]byte{17}
+	if err := database.CreateEnrollment(
+		ctx,
+		"expired-enrollment",
+		expiredCode,
+		"parent_mobile",
+		now.Add(-time.Second),
+		now.Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SubmitEnrollment(
+		ctx,
+		expiredCode,
+		[32]byte{18},
+		"Expired Phone",
+		"dad",
+		now,
+	); !errors.Is(err, ErrInvalidEnrollment) {
+		t.Fatalf("expired enrollment was submitted: got %v", err)
+	}
 }

@@ -61,6 +61,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/enrollments", a.createEnrollment)
 	mux.HandleFunc("GET /api/admin/enrollments", a.listEnrollments)
 	mux.HandleFunc("POST /api/admin/enrollments/{id}/approve", a.approveEnrollment)
+	mux.HandleFunc("POST /api/admin/enrollments/{id}/reject", a.rejectEnrollment)
 	mux.HandleFunc("GET /api/admin/devices", a.listDevices)
 	mux.HandleFunc("POST /api/admin/devices/{id}/revoke", a.revokeDevice)
 

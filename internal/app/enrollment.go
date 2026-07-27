@@ -125,6 +125,10 @@ func (a *App) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "awaiting_approval"})
 		return
 	}
+	if enrollment.Status == "rejected" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "rejected"})
+		return
+	}
 	accessToken := security.NewToken()
 	refreshToken := security.NewToken()
 	owner := enrollment.Owner.String
@@ -196,6 +200,27 @@ func (a *App) approveEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "approved"})
+}
+
+func (a *App) rejectEnrollment(w http.ResponseWriter, r *http.Request) {
+	device, ok := a.requireAdmin(w, r, true)
+	if !ok {
+		return
+	}
+	if err := a.db.RejectEnrollment(
+		r.Context(),
+		r.PathValue("id"),
+		device.ID,
+		time.Now().UTC(),
+	); errors.Is(err, database.ErrInvalidEnrollment) {
+		writeJSON(w, http.StatusConflict, map[string]string{"status": "not_rejectable"})
+		return
+	} else if err != nil {
+		a.logger.Error("enrollment rejection failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"status": "error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
 }
 
 func (a *App) listDevices(w http.ResponseWriter, r *http.Request) {

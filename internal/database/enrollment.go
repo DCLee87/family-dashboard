@@ -111,7 +111,7 @@ func (d *Database) EnrollmentByClaim(
 		`SELECT id, requested_type, device_name, owner, status, expires_at
 		 FROM enrollment_requests
 		 WHERE code_hash = ? AND expires_at > ?
-		   AND status IN ('submitted', 'approved')`,
+		   AND status IN ('submitted', 'approved', 'rejected')`,
 		claimHash[:],
 		databaseTime(now),
 	).Scan(
@@ -196,6 +196,53 @@ func (d *Database) ApproveEnrollment(
 	}
 	if changed != 1 {
 		return ErrInvalidEnrollment
+	}
+	return nil
+}
+
+func (d *Database) RejectEnrollment(
+	ctx context.Context,
+	id string,
+	rejectedBy string,
+	now time.Time,
+) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin enrollment rejection: %w", err)
+	}
+	defer tx.Rollback()
+	nowValue := databaseTime(now)
+	result, err := tx.ExecContext(
+		ctx,
+		`UPDATE enrollment_requests
+		 SET status = 'rejected', approved_by_device_id = ?, decided_at = ?
+		 WHERE id = ? AND status = 'submitted' AND expires_at > ?`,
+		rejectedBy,
+		nowValue,
+		id,
+		nowValue,
+	)
+	if err != nil {
+		return fmt.Errorf("reject enrollment: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read enrollment rejection: %w", err)
+	}
+	if changed != 1 {
+		return ErrInvalidEnrollment
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO security_events(event_type, device_id, result, reason, created_at)
+		 VALUES ('device_enrollment', ?, 'failure', 'administrator_rejected', ?)`,
+		rejectedBy,
+		nowValue,
+	); err != nil {
+		return fmt.Errorf("record enrollment rejection: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit enrollment rejection: %w", err)
 	}
 	return nil
 }

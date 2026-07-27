@@ -313,6 +313,15 @@ function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
     await refresh();
   }
 
+  async function reject(id: string) {
+    const response = await adminFetch(`/api/admin/enrollments/${encodeURIComponent(id)}/reject`);
+    if (!response.ok) {
+      setError("등록 요청을 거절하지 못했습니다.");
+      return;
+    }
+    await refresh();
+  }
+
   async function revoke(id: string, name: string) {
     if (!window.confirm(`${name} 기기의 접속 권한을 폐기할까요?`)) return;
     const response = await adminFetch(`/api/admin/devices/${encodeURIComponent(id)}/revoke`);
@@ -345,7 +354,10 @@ function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
             <strong>{item.name}</strong>
             <span>{item.owner === "dad" ? "아빠" : "엄마"} 모바일 등록 요청</span>
           </div>
-          <button type="button" onClick={() => void approve(item.id)}>승인</button>
+          <div className="button-row">
+            <button type="button" onClick={() => void approve(item.id)}>승인</button>
+            <button type="button" className="danger" onClick={() => void reject(item.id)}>거절</button>
+          </div>
         </div>
       ))}
       <div className="device-list">
@@ -396,9 +408,12 @@ function MobileEnrollment() {
         setStatus("등록이 완료되었습니다. 대시보드로 이동합니다.");
         window.setTimeout(() => window.location.assign("/"), 600);
       } else if (response.status !== 202) {
+        const result = await response.json().catch(() => ({ status: "" }));
         sessionStorage.removeItem("family_dashboard_claim");
         setClaimToken("");
-        setError("등록 요청이 만료되었거나 더 이상 유효하지 않습니다.");
+        setError(result.status === "rejected"
+          ? "신뢰 PC에서 등록 요청을 거절했습니다."
+          : "등록 요청이 만료되었거나 더 이상 유효하지 않습니다.");
       }
     }
     void claim();
