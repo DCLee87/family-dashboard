@@ -280,4 +280,43 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 	if _, err := database.DeviceByAccessToken(ctx, pcAccess, now); err != nil {
 		t.Fatalf("revoking mobile affected trusted PC: %v", err)
 	}
+
+	sessionHash := [32]byte{12}
+	if err := database.CreateAdminSession(
+		ctx,
+		"trusted-pc",
+		"admin-session",
+		sessionHash,
+		[32]byte{13},
+		now.Add(10*time.Minute),
+		now.Add(time.Hour),
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	active, err := database.ValidateAdminSession(
+		ctx,
+		"trusted-pc",
+		sessionHash,
+		nil,
+		now.Add(9*time.Minute),
+		false,
+	)
+	if err != nil || !active {
+		t.Fatalf("admin session expired early: active=%v err=%v", active, err)
+	}
+	active, err = database.ValidateAdminSession(
+		ctx,
+		"trusted-pc",
+		sessionHash,
+		nil,
+		now.Add(11*time.Minute),
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active {
+		t.Fatal("read-only polling kept an idle admin session active")
+	}
 }

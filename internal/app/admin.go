@@ -221,7 +221,7 @@ func (a *App) requireAdmin(
 		sessionHash,
 		csrfHash,
 		time.Now().UTC(),
-		true,
+		stateChange,
 	)
 	if err != nil {
 		a.logger.Error("administrator authorization failed", "error", err)
