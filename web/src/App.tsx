@@ -64,7 +64,7 @@ export default function App() {
         fetch("/api/health", { cache: "no-store" }),
         fetch("/api/runtime", { cache: "no-store" }),
         fetch("/api/setup/status", { cache: "no-store" }),
-        fetch("/api/auth/device", { cache: "no-store" }),
+        fetchDeviceWithRefresh(),
       ]);
       if (!healthResponse.ok || !runtimeResponse.ok || !setupResponse.ok) {
         throw new Error("unavailable");
@@ -632,4 +632,13 @@ function adminFetch(path: string) {
     method: "POST",
     headers: { "X-CSRF-Token": readCookie("family_dashboard_csrf") },
   });
+}
+
+async function fetchDeviceWithRefresh() {
+  let response = await fetch("/api/auth/device", { cache: "no-store" });
+  if (response.status !== 401) return response;
+  const refreshed = await fetch("/api/auth/refresh", { method: "POST" });
+  if (!refreshed.ok) return response;
+  response = await fetch("/api/auth/device", { cache: "no-store" });
+  return response;
 }

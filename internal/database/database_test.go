@@ -271,6 +271,58 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 	if _, err := database.DeviceByAccessToken(ctx, mobileAccess, now); err != nil {
 		t.Fatalf("mobile credential was not active: %v", err)
 	}
+	rotatedAccess := [32]byte{19}
+	if err := database.RotateRefreshCredential(
+		ctx,
+		[32]byte{9},
+		CredentialRotation{
+			AccessID:         "rotated-access",
+			AccessHash:       rotatedAccess,
+			AccessExpiresAt:  now.Add(2 * time.Hour),
+			RefreshID:        "rotated-refresh",
+			RefreshHash:      [32]byte{20},
+			RefreshExpiresAt: now.Add(2 * time.Hour),
+		},
+		now.Add(time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.DeviceByAccessToken(
+		ctx,
+		mobileAccess,
+		now.Add(time.Minute),
+	); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("old access credential survived rotation: got %v", err)
+	}
+	if _, err := database.DeviceByAccessToken(
+		ctx,
+		rotatedAccess,
+		now.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("rotated access credential was rejected: %v", err)
+	}
+	if err := database.RotateRefreshCredential(
+		ctx,
+		[32]byte{9},
+		CredentialRotation{
+			AccessID:         "reuse-access",
+			AccessHash:       [32]byte{21},
+			AccessExpiresAt:  now.Add(2 * time.Hour),
+			RefreshID:        "reuse-refresh",
+			RefreshHash:      [32]byte{22},
+			RefreshExpiresAt: now.Add(2 * time.Hour),
+		},
+		now.Add(2*time.Minute),
+	); !errors.Is(err, ErrRefreshReuse) {
+		t.Fatalf("refresh reuse: got %v, want %v", err, ErrRefreshReuse)
+	}
+	if _, err := database.DeviceByAccessToken(
+		ctx,
+		rotatedAccess,
+		now.Add(2*time.Minute),
+	); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("refresh reuse did not revoke token family: got %v", err)
+	}
 	if err := database.RevokeDevice(ctx, "dad-phone", "trusted-pc", now); err != nil {
 		t.Fatal(err)
 	}
