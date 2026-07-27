@@ -288,7 +288,9 @@ func (d *Database) ListDevices(ctx context.Context) ([]DeviceSummary, error) {
 	rows, err := d.db.QueryContext(
 		ctx,
 		`SELECT id, name, device_type, owner, status, created_at, last_used_at
-		 FROM devices ORDER BY created_at`,
+		 FROM devices
+		 WHERE status = 'active'
+		 ORDER BY created_at`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list devices: %w", err)

@@ -280,6 +280,15 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 	if _, err := database.DeviceByAccessToken(ctx, pcAccess, now); err != nil {
 		t.Fatalf("revoking mobile affected trusted PC: %v", err)
 	}
+	activeDevices, err := database.ListDevices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activeDevices) != 1 ||
+		activeDevices[0].ID != "trusted-pc" ||
+		activeDevices[0].Status != "active" {
+		t.Fatalf("device list exposed revoked devices: %#v", activeDevices)
+	}
 
 	sessionHash := [32]byte{12}
 	if err := database.CreateAdminSession(
