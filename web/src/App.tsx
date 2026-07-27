@@ -262,7 +262,9 @@ function AdminControl({
           </div>
         </form>
       )}
-      {auth.permissions.admin && <DeviceManagement currentDeviceId={auth.device.id} />}
+      {auth.permissions.admin && auth.device.type === "trusted_pc" && (
+        <DeviceManagement currentDeviceId={auth.device.id} />
+      )}
       {error && <p className="form-error" role="alert">{error}</p>}
     </section>
   );
