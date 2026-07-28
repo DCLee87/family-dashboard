@@ -34,14 +34,18 @@ func (a *App) refreshDevice(w http.ResponseWriter, r *http.Request) {
 			RefreshHash:      security.TokenHash(refreshToken),
 			RefreshExpiresAt: now.Add(refreshLifetime),
 		},
+		requestInNetworks(r, a.config.LocalNetworks),
 		now,
 	)
 	if errors.Is(err, database.ErrUnauthenticated) ||
-		errors.Is(err, database.ErrRefreshReuse) {
+		errors.Is(err, database.ErrRefreshReuse) ||
+		errors.Is(err, database.ErrLocalNetworkRequired) {
 		clearDeviceCookies(w, a.config.SecureCookies)
 		status := "unauthorized"
 		if errors.Is(err, database.ErrRefreshReuse) {
 			status = "refresh_reuse_detected"
+		} else if errors.Is(err, database.ErrLocalNetworkRequired) {
+			status = "local_network_required"
 		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"status": status})
 		return

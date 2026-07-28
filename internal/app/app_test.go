@@ -206,6 +206,16 @@ func TestInitialSetupIsDeniedWithoutLocalNetwork(t *testing.T) {
 	}
 }
 
+func TestTailscaleServeRequestIsNotLocal(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "https://dashboard.example/", nil)
+	request.RemoteAddr = "172.20.0.1:12345"
+	request.Header.Set("Tailscale-User-Login", "family-member@example.test")
+	networks := []netip.Prefix{netip.MustParsePrefix("172.20.0.0/16")}
+	if requestInNetworks(request, networks) {
+		t.Fatal("Tailscale Serve request was classified as local")
+	}
+}
+
 func TestAdminUnlockLockAndPINFailureLimit(t *testing.T) {
 	application, err := New(Config{
 		DataDir:          t.TempDir(),

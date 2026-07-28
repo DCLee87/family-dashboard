@@ -67,10 +67,13 @@ func (d *Database) SubmitEnrollment(
 	err := d.db.QueryRowContext(
 		ctx,
 		`UPDATE enrollment_requests
-		 SET code_hash = ?, device_name = ?, owner = ?, status = 'submitted',
+		 SET code_hash = ?, device_name = ?, owner = NULLIF(?, ''), status = 'submitted',
 		     submitted_at = ?
-		 WHERE code_hash = ? AND requested_type = 'parent_mobile'
-		   AND status = 'pending' AND expires_at > ?
+		 WHERE code_hash = ? AND status = 'pending' AND expires_at > ?
+		   AND (
+		     (requested_type = 'parent_mobile' AND ? IN ('dad', 'mom'))
+		     OR (requested_type = 'shared_tablet' AND ? = '')
+		   )
 		 RETURNING id, requested_type, device_name, owner, status, expires_at`,
 		claimHash[:],
 		deviceName,
@@ -78,6 +81,8 @@ func (d *Database) SubmitEnrollment(
 		databaseTime(now),
 		codeHash[:],
 		databaseTime(now),
+		owner,
+		owner,
 	).Scan(
 		&enrollment.ID,
 		&enrollment.RequestedType,
@@ -262,30 +267,37 @@ func (d *Database) CompleteEnrollment(
 	now := databaseTime(setup.Now)
 	var enrollmentID string
 	var deviceName string
+	var requestedType string
 	err = tx.QueryRowContext(
 		ctx,
 		`UPDATE enrollment_requests
 		 SET code_hash = ?
 		 WHERE code_hash = ? AND status = 'approved' AND expires_at > ?
-		 RETURNING id, device_name`,
+		 RETURNING id, device_name, requested_type`,
 		tombstoneHash[:],
 		claimHash[:],
 		now,
-	).Scan(&enrollmentID, &deviceName)
+	).Scan(&enrollmentID, &deviceName, &requestedType)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrInvalidEnrollment
 	}
 	if err != nil {
 		return fmt.Errorf("consume enrollment claim: %w", err)
 	}
+	localOnly := 0
+	if requestedType == "shared_tablet" || requestedType == "tv" {
+		localOnly = 1
+	}
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO devices(
 		   id, name, device_type, owner, local_only, status, created_at, last_used_at
-		 ) VALUES (?, ?, 'parent_mobile', ?, 0, 'active', ?, ?)`,
+		 ) VALUES (?, ?, ?, NULLIF(?, ''), ?, 'active', ?, ?)`,
 		setup.DeviceID,
 		deviceName,
+		requestedType,
 		owner,
+		localOnly,
 		now,
 		now,
 	); err != nil {
@@ -319,8 +331,9 @@ func (d *Database) CompleteEnrollment(
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO security_events(event_type, device_id, result, reason, created_at)
-		 VALUES ('device_enrollment', ?, 'success', 'parent_mobile_approved', ?)`,
+		 VALUES ('device_enrollment', ?, 'success', ?, ?)`,
 		setup.DeviceID,
+		requestedType+"_approved",
 		now,
 	); err != nil {
 		return fmt.Errorf("record enrollment event: %w", err)

@@ -283,6 +283,7 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 			RefreshHash:      [32]byte{20},
 			RefreshExpiresAt: now.Add(2 * time.Hour),
 		},
+		true,
 		now.Add(time.Minute),
 	); err != nil {
 		t.Fatal(err)
@@ -312,6 +313,7 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 			RefreshHash:      [32]byte{22},
 			RefreshExpiresAt: now.Add(2 * time.Hour),
 		},
+		true,
 		now.Add(2*time.Minute),
 	); !errors.Is(err, ErrRefreshReuse) {
 		t.Fatalf("refresh reuse: got %v, want %v", err, ErrRefreshReuse)
@@ -448,5 +450,106 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 		now,
 	); !errors.Is(err, ErrInvalidEnrollment) {
 		t.Fatalf("expired enrollment was submitted: got %v", err)
+	}
+}
+
+func TestSharedTabletEnrollmentAndExternalRefreshRejection(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	database, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	setupCode := [32]byte{30}
+	if _, err := database.EnsureInitialSetupCode(ctx, setupCode, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteInitialSetup(ctx, InitialSetup{
+		CodeHash: setupCode, PINHash: "test-pin-hash", DeviceID: "trusted-pc",
+		DeviceName: "Home Mac", AccessID: "pc-access", AccessHash: [32]byte{31},
+		AccessExpiresAt: now.Add(time.Hour), RefreshID: "pc-refresh",
+		RefreshHash: [32]byte{32}, RefreshFamilyID: "pc-family",
+		RefreshExpiresAt: now.Add(time.Hour), RecoveryID: "recovery",
+		RecoveryHash: [32]byte{33}, Now: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	codeHash := [32]byte{34}
+	claimHash := [32]byte{35}
+	if err := database.CreateEnrollment(
+		ctx, "tablet-enrollment", codeHash, "shared_tablet", now.Add(10*time.Minute), now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	submitted, err := database.SubmitEnrollment(
+		ctx, codeHash, claimHash, "Living Room Tablet", "", now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submitted.RequestedType != "shared_tablet" || submitted.Owner.Valid {
+		t.Fatalf("unexpected tablet submission: %#v", submitted)
+	}
+	if err := database.ApproveEnrollment(
+		ctx, "tablet-enrollment", "trusted-pc", now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	tabletAccess := [32]byte{36}
+	tabletRefresh := [32]byte{37}
+	if err := database.CompleteEnrollment(
+		ctx,
+		claimHash,
+		[32]byte{38},
+		InitialSetup{
+			DeviceID: "shared-tablet", AccessID: "tablet-access",
+			AccessHash: tabletAccess, AccessExpiresAt: now.Add(time.Hour),
+			RefreshID: "tablet-refresh", RefreshHash: tabletRefresh,
+			RefreshFamilyID: "tablet-family", RefreshExpiresAt: now.Add(time.Hour),
+			Now: now,
+		},
+		"",
+	); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.DeviceByAccessToken(ctx, tabletAccess, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.Type != "shared_tablet" || !device.LocalOnly {
+		t.Fatalf("unexpected tablet device: %#v", device)
+	}
+
+	err = database.RotateRefreshCredential(
+		ctx,
+		tabletRefresh,
+		CredentialRotation{
+			AccessID: "external-access", AccessHash: [32]byte{39},
+			AccessExpiresAt: now.Add(2 * time.Hour), RefreshID: "external-refresh",
+			RefreshHash: [32]byte{40}, RefreshExpiresAt: now.Add(2 * time.Hour),
+		},
+		false,
+		now.Add(time.Minute),
+	)
+	if !errors.Is(err, ErrLocalNetworkRequired) {
+		t.Fatalf("external tablet refresh: got %v, want %v", err, ErrLocalNetworkRequired)
+	}
+
+	if err := database.RotateRefreshCredential(
+		ctx,
+		tabletRefresh,
+		CredentialRotation{
+			AccessID: "local-access", AccessHash: [32]byte{41},
+			AccessExpiresAt: now.Add(2 * time.Hour), RefreshID: "local-refresh",
+			RefreshHash: [32]byte{42}, RefreshExpiresAt: now.Add(2 * time.Hour),
+		},
+		true,
+		now.Add(2*time.Minute),
+	); err != nil {
+		t.Fatalf("local tablet refresh failed: %v", err)
 	}
 }

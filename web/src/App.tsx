@@ -34,6 +34,7 @@ type DeviceAuth = {
 
 type EnrollmentItem = {
   id: string;
+  type: string;
   name: string;
   owner: string;
   status: string;
@@ -89,7 +90,11 @@ export default function App() {
   }, [refresh]);
 
   if (window.location.pathname === "/enroll") {
-    return <MobileEnrollment />;
+    return <DeviceEnrollment type="parent_mobile" />;
+  }
+
+  if (window.location.pathname === "/enroll/tablet") {
+    return <DeviceEnrollment type="shared_tablet" />;
   }
 
   if (setupRequired) {
@@ -271,7 +276,7 @@ function AdminControl({
 }
 
 function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState<{ value: string; type: string } | null>(null);
   const [enrollments, setEnrollments] = useState<EnrollmentItem[]>([]);
   const [devices, setDevices] = useState<RegisteredDevice[]>([]);
   const [error, setError] = useState("");
@@ -292,15 +297,22 @@ function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  async function createEnrollment() {
+  async function createEnrollment(type: "parent_mobile" | "shared_tablet") {
     setError("");
-    const response = await adminFetch("/api/admin/enrollments");
+    const response = await fetch("/api/admin/enrollments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+      },
+      body: JSON.stringify({ type }),
+    });
     if (!response.ok) {
-      setError("모바일 등록 코드를 만들지 못했습니다.");
+      setError("기기 등록 코드를 만들지 못했습니다.");
       return;
     }
     const result = await response.json();
-    setCode(result.code);
+    setCode({ value: result.code, type: result.type });
     await refresh();
   }
 
@@ -336,23 +348,33 @@ function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
     <div className="device-management">
       <div className="management-heading">
         <div>
-          <p className="label">부모 모바일 등록</p>
-          <p>모바일에서 등록 화면을 열고 일회용 코드를 입력한 뒤 여기서 승인하세요.</p>
+          <p className="label">새 기기 등록</p>
+          <p>등록할 기기에서 일회용 코드를 입력한 뒤 여기서 승인하세요.</p>
         </div>
-        <button type="button" onClick={() => void createEnrollment()}>등록 코드 만들기</button>
+        <div className="button-row">
+          <button type="button" onClick={() => void createEnrollment("parent_mobile")}>부모 모바일</button>
+          <button type="button" onClick={() => void createEnrollment("shared_tablet")}>공용 태블릿</button>
+        </div>
       </div>
       {code && (
         <div className="enrollment-code">
-          <strong>{code}</strong>
+          <strong>{code.value}</strong>
           <span>10분 동안 한 번만 사용할 수 있습니다.</span>
-          <a href="/enroll" target="_blank" rel="noreferrer">모바일 등록 화면 열기</a>
+          <a href={code.type === "shared_tablet" ? "/enroll/tablet" : "/enroll"}
+            target="_blank" rel="noreferrer">
+            {code.type === "shared_tablet" ? "태블릿" : "모바일"} 등록 화면 열기
+          </a>
         </div>
       )}
       {enrollments.filter((item) => item.status === "submitted").map((item) => (
         <div className="enrollment-request" key={item.id}>
           <div>
             <strong>{item.name}</strong>
-            <span>{item.owner === "dad" ? "아빠" : "엄마"} 모바일 등록 요청</span>
+            <span>
+              {item.type === "shared_tablet"
+                ? "공용 태블릿 등록 요청"
+                : `${item.owner === "dad" ? "아빠" : "엄마"} 모바일 등록 요청`}
+            </span>
           </div>
           <div className="button-row">
             <button type="button" onClick={() => void approve(item.id)}>승인</button>
@@ -367,7 +389,9 @@ function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
             <div>
               <strong>{device.name}</strong>
               <span>
-                {device.type === "trusted_pc" ? "신뢰 PC" : "부모 모바일"}
+                {device.type === "trusted_pc" ? "신뢰 PC"
+                  : device.type === "shared_tablet" ? "공용 태블릿"
+                    : device.type === "tv" ? "TV" : "부모 모바일"}
                 {device.owner ? ` · ${device.owner === "dad" ? "아빠" : "엄마"}` : ""}
                 {device.status === "revoked" ? " · 폐기됨" : ""}
               </span>
@@ -385,7 +409,7 @@ function DeviceManagement({ currentDeviceId }: { currentDeviceId: string }) {
   );
 }
 
-function MobileEnrollment() {
+function DeviceEnrollment({ type }: { type: "parent_mobile" | "shared_tablet" }) {
   const [code, setCode] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [owner, setOwner] = useState("dad");
@@ -430,7 +454,7 @@ function MobileEnrollment() {
     const response = await fetch("/api/enrollments/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, deviceName, owner }),
+      body: JSON.stringify({ code, deviceName, owner: type === "parent_mobile" ? owner : "" }),
     });
     if (!response.ok) {
       setError("등록 코드가 잘못되었거나 만료되었습니다.");
@@ -446,8 +470,8 @@ function MobileEnrollment() {
   return (
     <main className="setup-layout mobile-enrollment">
       <header className="setup-intro">
-        <p className="eyebrow">E2 · PARENT MOBILE</p>
-        <h1>부모 모바일 등록</h1>
+        <p className="eyebrow">{type === "shared_tablet" ? "E2 · SHARED TABLET" : "E2 · PARENT MOBILE"}</p>
+        <h1>{type === "shared_tablet" ? "공용 태블릿 등록" : "부모 모바일 등록"}</h1>
         <p className="subtitle">신뢰 PC에서 만든 일회용 코드를 입력하세요. PC의 최종 승인 후 이 기기만의 인증정보가 발급됩니다.</p>
       </header>
       <form className="setup-card" onSubmit={submit}>
@@ -458,16 +482,19 @@ function MobileEnrollment() {
         </label>
         <label>
           <span>기기 이름</span>
-          <input maxLength={80} placeholder="예: 아빠 iPhone" value={deviceName}
+          <input maxLength={80}
+            placeholder={type === "shared_tablet" ? "예: 거실 태블릿" : "예: 아빠 iPhone"} value={deviceName}
             onChange={(event) => setDeviceName(event.target.value)} disabled={Boolean(claimToken)} required />
         </label>
-        <label>
-          <span>사용자</span>
-          <select value={owner} onChange={(event) => setOwner(event.target.value)} disabled={Boolean(claimToken)}>
-            <option value="dad">아빠</option>
-            <option value="mom">엄마</option>
-          </select>
-        </label>
+        {type === "parent_mobile" && (
+          <label>
+            <span>사용자</span>
+            <select value={owner} onChange={(event) => setOwner(event.target.value)} disabled={Boolean(claimToken)}>
+              <option value="dad">아빠</option>
+              <option value="mom">엄마</option>
+            </select>
+          </label>
+        )}
         {status && <p className="waiting-status" role="status">{status}</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
         {!claimToken && <button type="submit">등록 요청 보내기</button>}

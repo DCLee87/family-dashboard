@@ -9,6 +9,7 @@ import (
 )
 
 var ErrRefreshReuse = errors.New("refresh token reuse detected")
+var ErrLocalNetworkRequired = errors.New("local network required")
 
 type CredentialRotation struct {
 	AccessID         string
@@ -23,6 +24,7 @@ func (d *Database) RotateRefreshCredential(
 	ctx context.Context,
 	oldHash [32]byte,
 	rotation CredentialRotation,
+	localNetwork bool,
 	now time.Time,
 ) error {
 	tx, err := d.db.BeginTx(ctx, nil)
@@ -37,10 +39,11 @@ func (d *Database) RotateRefreshCredential(
 	var revokedAt sql.NullString
 	var expiresValue string
 	var deviceStatus string
+	var localOnly int
 	err = tx.QueryRowContext(
 		ctx,
 		`SELECT c.device_id, c.family_id, c.consumed_at, c.revoked_at,
-		        c.expires_at, d.status
+		        c.expires_at, d.status, d.local_only
 		 FROM device_credentials c
 		 JOIN devices d ON d.id = c.device_id
 		 WHERE c.credential_type = 'refresh' AND c.token_hash = ?`,
@@ -52,6 +55,7 @@ func (d *Database) RotateRefreshCredential(
 		&revokedAt,
 		&expiresValue,
 		&deviceStatus,
+		&localOnly,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrUnauthenticated
@@ -60,6 +64,21 @@ func (d *Database) RotateRefreshCredential(
 		return fmt.Errorf("read refresh credential: %w", err)
 	}
 	nowValue := databaseTime(now)
+	if localOnly == 1 && !localNetwork {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO security_events(event_type, device_id, result, reason, created_at)
+			 VALUES ('network_policy', ?, 'blocked', 'local_device_external_refresh', ?)`,
+			deviceID,
+			nowValue,
+		); err != nil {
+			return fmt.Errorf("record external refresh rejection: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit external refresh rejection: %w", err)
+		}
+		return ErrLocalNetworkRequired
+	}
 	if consumedAt.Valid {
 		if _, err := tx.ExecContext(
 			ctx,

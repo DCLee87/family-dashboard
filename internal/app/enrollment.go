@@ -17,6 +17,23 @@ func (a *App) createEnrollment(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireAdmin(w, r, true); !ok {
 		return
 	}
+	var request struct {
+		Type string `json:"type"`
+	}
+	if r.Body != nil {
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+		if err := decoder.Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"status": "invalid_request"})
+			return
+		}
+	}
+	if request.Type == "" {
+		request.Type = "parent_mobile"
+	}
+	if request.Type != "parent_mobile" && request.Type != "shared_tablet" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "invalid_request"})
+		return
+	}
 	code, err := security.NewDisplayCode(8)
 	if err != nil {
 		a.logger.Error("enrollment code generation failed", "error", err)
@@ -30,7 +47,7 @@ func (a *App) createEnrollment(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		id,
 		security.TokenHash(code),
-		"parent_mobile",
+		request.Type,
 		expiresAt,
 		now,
 	); err != nil {
@@ -39,7 +56,8 @@ func (a *App) createEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id": id, "status": "pending", "code": code, "expiresAt": expiresAt,
+		"id": id, "type": request.Type, "status": "pending", "code": code,
+		"expiresAt": expiresAt,
 	})
 }
 
@@ -69,7 +87,7 @@ func (a *App) submitEnrollment(w http.ResponseWriter, r *http.Request) {
 	if len(request.Code) != 8 ||
 		utf8.RuneCountInString(request.DeviceName) < 1 ||
 		utf8.RuneCountInString(request.DeviceName) > 80 ||
-		(request.Owner != "dad" && request.Owner != "mom") {
+		(request.Owner != "" && request.Owner != "dad" && request.Owner != "mom") {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "invalid_request"})
 		return
 	}
@@ -127,6 +145,11 @@ func (a *App) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	if enrollment.Status == "rejected" {
 		writeJSON(w, http.StatusForbidden, map[string]string{"status": "rejected"})
+		return
+	}
+	if (enrollment.RequestedType == "shared_tablet" || enrollment.RequestedType == "tv") &&
+		!requestInNetworks(r, a.config.LocalNetworks) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "local_network_required"})
 		return
 	}
 	accessToken := security.NewToken()

@@ -155,6 +155,13 @@ func (a *App) completeSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func requestInNetworks(r *http.Request, networks []netip.Prefix) bool {
+	// Tailscale Serve removes spoofed identity headers before adding its own.
+	// Its loopback-to-Docker hop can otherwise look like a local proxy request.
+	if r.Header.Get("Tailscale-User-Login") != "" ||
+		r.Header.Get("Tailscale-User-Name") != "" ||
+		r.Header.Get("Tailscale-User-Profile-Pic") != "" {
+		return false
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
