@@ -95,6 +95,8 @@ Construction 구현 전에 일정의 시간·반복·예외·공개 범위 의�
 
 - [E4 도메인·아키텍처 기준선 계획](e4-plan.md)
 - [E4 도메인 데이터 모델과 API 경계](../../architecture/e4-domain-data-model.md)
+- [E4 일정 상세 유스케이스](e4-schedule-use-cases.md)
+- [E4 일정 요구사항 추적표](e4-schedule-traceability.md)
 - [ADR-027: 일정 시간과 반복 회차 의미론](../../decisions/ADR-027-schedule-time-and-occurrence-semantics.md)
 
 ## 종료 조건
