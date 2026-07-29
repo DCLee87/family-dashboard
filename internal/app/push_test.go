@@ -150,7 +150,7 @@ func TestParentMobileCanReplaceAndRevokePushSubscription(t *testing.T) {
 	p256dh := base64.RawURLEncoding.EncodeToString(elliptic.Marshal(elliptic.P256(), x, y))
 	auth := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
 	body := bytes.NewBufferString(
-		`{"endpoint":"https://push.example/subscription","keys":{"p256dh":"` +
+		`{"endpoint":"https://push.example/subscription","expirationTime":null,"keys":{"p256dh":"` +
 			p256dh + `","auth":"` + auth + `"}}`,
 	)
 	putRequest := authenticatedPushRequest(

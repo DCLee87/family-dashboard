@@ -62,8 +62,9 @@ func (a *App) replacePushSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		Endpoint string `json:"endpoint"`
-		Keys     struct {
+		Endpoint       string `json:"endpoint"`
+		ExpirationTime *int64 `json:"expirationTime"`
+		Keys           struct {
 			P256DH string `json:"p256dh"`
 			Auth   string `json:"auth"`
 		} `json:"keys"`
