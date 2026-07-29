@@ -11,6 +11,8 @@ services:
     environment:
       FAMILY_DASHBOARD_ADDRESS: ":8080"
       FAMILY_DASHBOARD_DATA_DIR: "/data"
+      FAMILY_DASHBOARD_LOCAL_NETWORKS: "${FAMILY_DASHBOARD_LOCAL_NETWORKS:-}"
+      FAMILY_DASHBOARD_SECURE_COOKIES: "${FAMILY_DASHBOARD_SECURE_COOKIES:-true}"
     volumes:
       - ./runtime/data:/data
     read_only: true

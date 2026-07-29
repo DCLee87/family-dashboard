@@ -66,10 +66,18 @@ DS216+II에서 실행 가능한 최소 아키텍처와 자원 예산을 검증�
 - 상태 API 60초 단기 부하 완료: 1,200/1,200 성공, 최대 메모리 11.060 MiB
 - 세부 결과는 [E1 검증 기록](e1-verification.md)에서 관리
 
-## 다음 반복: E2
+## 현재 반복: E2
 
 외부 접속을 활성화하지 않은 상태에서 위협 모델, HTTPS, 등록 기기, 관리자
 PIN과 원격 접속 방식을 설계·검증한다.
+
+- [E2 작업 계획](e2-plan.md)
+- [E2 위협 모델 초안](../../architecture/e2-threat-model.md)
+- [E2 보안 요구사항 추적표](e2-security-traceability.md)
+- [E2 NAS 보안·외부 접속 검증 기록](e2-verification.md)
+- [E2 외부 접속 방식 비교](../../architecture/e2-external-access-comparison.md)
+- [E2 기기 인증 설계](../../architecture/e2-authentication-design.md)
+- [ADR-024: E2 사설 외부 접속 기준선](../../decisions/ADR-024-e2-private-remote-access.md)
 
 ## 종료 조건
 

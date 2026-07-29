@@ -1,13 +1,20 @@
-# Synology E1 검증
+# Synology E2 배포
 
-이 디렉터리는 DS216+II에서 E1 최소 런타임을 검증하기 위한 보조 도구다. 실제 가족 데이터를 넣기 전에 테스트 데이터로만 실행한다.
+이 디렉터리는 DS216+II에서 E2 보안 런타임을 배포하기 위한 보조 도구다.
+E1 데이터 볼륨은 유지하지만, 외부 백업과 복구 절차가 검증되기 전에는 실제
+가족 데이터를 유일본으로 저장하지 않는다.
 
 ## 사전 준비
 
 1. Container Manager에서 Compose 프로젝트를 실행할 수 있어야 한다.
 2. 배포 디렉터리의 `data` 디렉터리를 만들고 컨테이너 UID `10001`이 쓸 수 있게 설정한다.
-3. NAS 내부망에서만 포트 `8080`에 접근한다. E1에는 인증과 HTTPS가 없다.
-4. 외부 백업 대상과 복구 절차가 정해지기 전에는 실제 가족 데이터를 저장하지 않는다.
+3. Tailscale Serve가 NAS의 loopback `8080`을 비공개 HTTPS로 프록시해야 한다.
+4. Compose의 `FAMILY_DASHBOARD_LOCAL_NETWORKS`에는 실제 Docker 프록시
+   소스 CIDR을 명시한다. 빈 값은 최초 설정 변경 API를 기본 거부한다.
+5. `8080`은 `127.0.0.1`에만 바인딩하며 공유기 포트 포워딩이나 Tailscale
+   Funnel을 사용하지 않는다.
+6. TV·공용 태블릿은 Synology Reverse Proxy의 별도 LAN HTTPS 진입 경로를
+   사용한다. 로컬 CA 개인키와 실제 주소는 Git에 저장하지 않는다.
 
 ## Mac에서 NAS 패키지 생성
 
@@ -21,15 +28,28 @@ sh deploy/synology/build-package.sh
 
 ## NAS에서 실행
 
-패키지 디렉터리를 NAS로 복사한 뒤:
+패키지 디렉터리를 NAS의 사용자 홈으로 복사한 뒤:
 
 ```sh
-mkdir -p data
-sudo chown 10001:10001 data
-docker load -i family-dashboard-e1-amd64.tar
-docker compose up -d
-sh e1-verify.sh
-sh e1-monitor.sh
+sudo sh e2-deploy.sh
 ```
 
-`e1-monitor.sh`는 기본적으로 24시간 동안 60초마다 컨테이너 상태와 자원 사용량을 기록한다. `MONITOR_DURATION_SECONDS`와 `MONITOR_INTERVAL_SECONDS`로 시험 시간을 조정할 수 있다. 결과는 `docs/up/02-elaboration/e1-verification.md`에 옮겨 적는다.
+스크립트는 컨테이너를 정지한 상태에서 SQLite의 DB/WAL/SHM과 기존 Compose를
+`backups/pre-e2-<UTC 시각>`에 복사한다. 이후 E2 이미지를 로드하고, 호스트의
+`8080`을 loopback에만 바인딩하며, 실제 Compose 네트워크 CIDR을 최초 설정
+허용 범위로 기록한다. 백업 디렉터리를 확인하기 전에는 삭제하지 않는다.
+
+E1의 24시간·부하·재시작 검증은 이미 완료되었다. E2 배포 후에는 HTTPS,
+최초 신뢰 기기 등록, 인증 쿠키와 기존 SQLite 데이터 마이그레이션을 별도로
+검증한다.
+
+## 로컬 전용 기기의 LAN HTTPS
+
+E2 실기기 환경에서는 Synology Reverse Proxy가 LAN HTTPS 요청을
+`127.0.0.1:8080`으로 전달한다. Reverse Proxy의 소스 포트는 공유기에
+포워딩하지 않는다. 인증서는 로컬 호스트 이름과 현재 NAS LAN 주소를
+포함하고, 해당 로컬 CA 공개 인증서를 사용하는 기기에만 설치한다.
+
+CA 개인키는 암호화본만 별도 보관한다. 평문 개인키, 인증서 암호, 실제 주소와
+가족 정보는 Git이나 운영 문서에 기록하지 않는다. 구체적인 환경 값은
+운영자가 관리하며 결정 근거는 ADR-025를 따른다.

@@ -1,4 +1,4 @@
-const CACHE = "family-dashboard-e1-v1";
+const CACHE = "family-dashboard-e2-v1";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
