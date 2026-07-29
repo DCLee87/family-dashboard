@@ -233,6 +233,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .schedule-form .button-row { grid-column: 1 / -1; }
 .schedule-list { display: grid; }
 .schedule-list article { padding: 16px 0; border-top: 1px solid rgba(22,48,45,.1); }
+.schedule-list .schedule-editor-row { display: block; padding: 14px 0; }
+.schedule-editor-row .schedule-form { width: 100%; }
 .schedule-list article > div { display: grid; grid-template-columns: 110px 1fr; gap: 3px 14px; align-items: baseline; }
 .schedule-list time { grid-row: 1 / 4; color: #66766f; font-size: .9rem; }
 .schedule-list strong { font-size: 1.08rem; }
