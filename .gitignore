@@ -1,5 +1,6 @@
 .DS_Store
 .env
+push.env
 runtime/
 *.db
 *.db-shm
@@ -9,4 +10,3 @@ web/dist/
 internal/webui/dist/*
 !internal/webui/dist/.gitkeep
 web/*.tsbuildinfo
-

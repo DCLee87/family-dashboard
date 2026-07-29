@@ -1,9 +1,27 @@
 {
+  "id": "/",
   "name": "우리 가족 대시보드",
   "short_name": "가족 대시보드",
+  "description": "가족 일정과 할 일을 안전하게 공유하는 대시보드",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#f3efe5",
   "theme_color": "#152c2a",
-  "lang": "ko"
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/app-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
 }

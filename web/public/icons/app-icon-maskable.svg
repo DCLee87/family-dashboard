@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="우리 가족 대시보드">
+  <rect width="512" height="512" fill="#152c2a"/>
+  <path d="M128 250 256 140l128 110v130a32 32 0 0 1-32 32H160a32 32 0 0 1-32-32Z" fill="#f3efe5"/>
+  <path d="M208 412V310a48 48 0 0 1 96 0v102Z" fill="#d46b45"/>
+  <circle cx="188" cy="258" r="30" fill="#efb94f"/>
+  <circle cx="324" cy="258" r="30" fill="#6ea89f"/>
+</svg>
