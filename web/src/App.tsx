@@ -106,9 +106,9 @@ export default function App() {
   return (
     <main>
       <header>
-        <p className="eyebrow">E2 · PRIVATE FAMILY RUNTIME</p>
+        <p className="eyebrow">C1 · FAMILY SCHEDULE</p>
         <h1>우리 가족 대시보드</h1>
-        <p className="subtitle">가족 기기만 안전하게 연결되는 NAS 대시보드의 현재 상태입니다.</p>
+        <p className="subtitle">등록된 가족 기기에서 오늘의 일정과 NAS 서비스 상태를 함께 확인합니다.</p>
       </header>
 
       <section className={`status-card ${healthy ? "healthy" : "unhealthy"}`}>
@@ -141,12 +141,262 @@ export default function App() {
 
       <AdminControl auth={deviceAuth} onChanged={refresh} />
       <NotificationControl auth={deviceAuth} />
+      <ScheduleBoard auth={deviceAuth} />
 
       <footer>
         마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"} · 30초마다 자동 갱신
       </footer>
     </main>
   );
+}
+
+type FamilyMember = {
+  id: string;
+  displayName: string;
+  role: string;
+};
+
+type ScheduleOccurrence = {
+  id?: string;
+  title: string;
+  locationName?: string;
+  notes?: string;
+  visibility?: string;
+  startsAt: string;
+  endsAt: string;
+  participants?: string[];
+  version?: number;
+  summary?: boolean;
+  overlap?: boolean;
+};
+
+type ScheduleForm = {
+  id: string;
+  title: string;
+  locationName: string;
+  visibility: string;
+  startsAt: string;
+  endsAt: string;
+  participants: string[];
+  version: number;
+};
+
+function emptyScheduleForm(): ScheduleForm {
+  const start = new Date();
+  start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30, 0, 0);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  return {
+    id: "", title: "", locationName: "", visibility: "family",
+    startsAt: toLocalInput(start), endsAt: toLocalInput(end),
+    participants: [], version: 0,
+  };
+}
+
+function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
+  const [members, setMembers] = useState<FamilyMember[]>([]);
+  const [occurrences, setOccurrences] = useState<ScheduleOccurrence[]>([]);
+  const [form, setForm] = useState<ScheduleForm>(emptyScheduleForm);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  const refreshSchedules = useCallback(async () => {
+    if (!auth) {
+      setMembers([]);
+      setOccurrences([]);
+      return;
+    }
+    const today = new Date();
+    const from = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const to = new Date(from);
+    to.setDate(to.getDate() + 1);
+    try {
+      const [memberResponse, scheduleResponse] = await Promise.all([
+        fetch("/api/v1/family-members", { cache: "no-store" }),
+        fetch(`/api/v1/schedule-occurrences?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { cache: "no-store" }),
+      ]);
+      if (!memberResponse.ok || !scheduleResponse.ok) throw new Error("오늘 일정을 불러오지 못했습니다.");
+      const memberResult = await memberResponse.json() as { members: FamilyMember[] };
+      const scheduleResult = await scheduleResponse.json() as { occurrences: ScheduleOccurrence[] };
+      setMembers(memberResult.members);
+      setOccurrences(scheduleResult.occurrences);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "오늘 일정을 불러오지 못했습니다.");
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    void refreshSchedules();
+  }, [refreshSchedules]);
+
+  if (!auth) return null;
+
+  function toggleParticipant(id: string) {
+    setForm((current) => ({
+      ...current,
+      participants: current.participants.includes(id)
+        ? current.participants.filter((participant) => participant !== id)
+        : [...current.participants, id],
+    }));
+  }
+
+  function editSchedule(item: ScheduleOccurrence) {
+    if (!item.id) return;
+    setForm({
+      id: item.id,
+      title: item.title,
+      locationName: item.locationName ?? "",
+      visibility: item.visibility ?? "family",
+      startsAt: toLocalInput(new Date(item.startsAt)),
+      endsAt: toLocalInput(new Date(item.endsAt)),
+      participants: item.participants ?? [],
+      version: item.version ?? 1,
+    });
+    setShowForm(true);
+  }
+
+  async function save(confirmOverlap = false) {
+    setBusy(true);
+    setError("");
+    try {
+      if (!form.title.trim()) throw new Error("일정 제목을 입력하세요.");
+      if (form.participants.length === 0) throw new Error("대상 가족을 한 명 이상 선택하세요.");
+      const method = form.id ? "PUT" : "POST";
+      const target = form.id ? `/api/v1/schedules/${encodeURIComponent(form.id)}` : "/api/v1/schedules";
+      const response = await fetch(target, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+        },
+        body: JSON.stringify({
+          title: form.title,
+          locationName: form.locationName,
+          visibility: form.visibility,
+          startsAt: new Date(form.startsAt).toISOString(),
+          endsAt: new Date(form.endsAt).toISOString(),
+          participants: form.participants,
+          version: form.version,
+          confirmOverlap,
+        }),
+      });
+      const result = await response.json() as { code?: string; message?: string };
+      if (response.status === 409 && result.code === "overlap_warning" && !confirmOverlap) {
+        if (window.confirm("같은 가족에게 겹치는 일정이 있습니다. 그래도 저장할까요?")) {
+          await save(true);
+        }
+        return;
+      }
+      if (!response.ok) throw new Error(result.message ?? "일정을 저장하지 못했습니다.");
+      setForm(emptyScheduleForm());
+      setShowForm(false);
+      await refreshSchedules();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "일정을 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="schedule-card">
+      <div className="schedule-heading">
+        <div>
+          <p className="label">오늘의 일정</p>
+          <strong>{occurrences.length === 0 ? "등록된 일정 없음" : `${occurrences.length}개 일정`}</strong>
+        </div>
+        {auth.permissions.admin && (
+          <button type="button" onClick={() => {
+            setForm(emptyScheduleForm());
+            setShowForm((current) => !current);
+          }}>
+            {showForm ? "입력 닫기" : "일정 추가"}
+          </button>
+        )}
+      </div>
+
+      {showForm && auth.permissions.admin && (
+        <form className="schedule-form" onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}>
+          <label>
+            <span>제목</span>
+            <input value={form.title} maxLength={200} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+          </label>
+          <label>
+            <span>장소</span>
+            <input value={form.locationName} maxLength={200} onChange={(event) => setForm({ ...form, locationName: event.target.value })} />
+          </label>
+          <div className="schedule-time-fields">
+            <label>
+              <span>시작</span>
+              <input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} />
+            </label>
+            <label>
+              <span>종료</span>
+              <input type="datetime-local" value={form.endsAt} onChange={(event) => setForm({ ...form, endsAt: event.target.value })} />
+            </label>
+          </div>
+          <label>
+            <span>공개 범위</span>
+            <select value={form.visibility} onChange={(event) => setForm({ ...form, visibility: event.target.value })}>
+              <option value="family">가족 공개</option>
+              <option value="tv_summary">TV 요약</option>
+              <option value="parents_only">부모 전용</option>
+            </select>
+          </label>
+          <fieldset>
+            <legend>대상 가족</legend>
+            <div className="participant-options">
+              {members.map((member) => (
+                <label key={member.id}>
+                  <input
+                    type="checkbox"
+                    checked={form.participants.includes(member.id)}
+                    onChange={() => toggleParticipant(member.id)}
+                  />
+                  <span>{member.displayName}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="button-row">
+            <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.id ? "일정 수정" : "일정 저장"}</button>
+            {form.id && <button type="button" className="secondary" onClick={() => setForm(emptyScheduleForm())}>수정 취소</button>}
+          </div>
+        </form>
+      )}
+
+      {error && <p className="form-error">{error}</p>}
+      <div className="schedule-list">
+        {occurrences.map((item, index) => (
+          <article key={item.id ?? `${item.startsAt}-${index}`} className={item.summary ? "schedule-summary" : ""}>
+            <div>
+              <time>{formatScheduleTime(item.startsAt, item.endsAt)}</time>
+              <strong>{item.title}</strong>
+              {item.locationName && <span>{item.locationName}</span>}
+              {item.overlap && <span className="overlap-badge">일정 겹침</span>}
+            </div>
+            {auth.permissions.admin && item.id && (
+              <button type="button" className="secondary" onClick={() => editSchedule(item)}>수정</button>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function toLocalInput(value: Date): string {
+  const offset = value.getTimezoneOffset() * 60_000;
+  return new Date(value.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function formatScheduleTime(startsAt: string, endsAt: string): string {
+  const format = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  return `${format.format(new Date(startsAt))}–${format.format(new Date(endsAt))}`;
 }
 
 type PushConfig = {

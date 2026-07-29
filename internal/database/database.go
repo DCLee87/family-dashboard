@@ -207,6 +207,49 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		 ON push_subscriptions(device_id) WHERE revoked_at IS NULL`,
 		`INSERT INTO schema_migrations(version) VALUES (3)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS family_members (
+			id TEXT PRIMARY KEY,
+			slug TEXT NOT NULL UNIQUE CHECK (length(slug) BETWEEN 1 AND 40),
+			display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 80),
+			role TEXT NOT NULL CHECK (role IN ('parent', 'child')),
+			active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO family_members(id, slug, display_name, role) VALUES
+		 ('dad', 'dad', '아빠', 'parent'),
+		 ('mom', 'mom', '엄마', 'parent'),
+		 ('daughter', 'daughter', '딸', 'child')
+		 ON CONFLICT(id) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedules (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+			location_name TEXT CHECK (location_name IS NULL OR length(location_name) <= 200),
+			notes TEXT CHECK (notes IS NULL OR length(notes) <= 2000),
+			visibility TEXT NOT NULL DEFAULT 'family' CHECK (
+				visibility IN ('family', 'tv_summary', 'parents_only')
+			),
+			time_kind TEXT NOT NULL DEFAULT 'timed' CHECK (time_kind = 'timed'),
+			starts_at TEXT NOT NULL,
+			ends_at TEXT NOT NULL,
+			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			deleted_at TEXT,
+			CHECK (ends_at > starts_at)
+		)`,
+		`CREATE INDEX IF NOT EXISTS schedules_time_range
+		 ON schedules(starts_at, ends_at) WHERE deleted_at IS NULL`,
+		`CREATE TABLE IF NOT EXISTS schedule_participants (
+			schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+			family_member_id TEXT NOT NULL REFERENCES family_members(id),
+			PRIMARY KEY(schedule_id, family_member_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS schedule_participants_member
+		 ON schedule_participants(family_member_id, schedule_id)`,
+		`INSERT INTO schema_migrations(version) VALUES (4)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

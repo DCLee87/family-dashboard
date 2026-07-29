@@ -84,6 +84,12 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/enrollments/{id}/reject", a.rejectEnrollment)
 	mux.HandleFunc("GET /api/admin/devices", a.listDevices)
 	mux.HandleFunc("POST /api/admin/devices/{id}/revoke", a.revokeDevice)
+	mux.HandleFunc("GET /api/v1/family-members", a.listFamilyMembers)
+	mux.HandleFunc("POST /api/v1/schedules", a.createSchedule)
+	mux.HandleFunc("PUT /api/v1/schedules/{id}", a.updateSchedule)
+	mux.HandleFunc("GET /api/v1/schedules/{id}", a.getSchedule)
+	mux.HandleFunc("GET /api/v1/schedule-occurrences", a.listScheduleOccurrences)
+	mux.HandleFunc("GET /api/v1/family-status", a.familyStatus)
 
 	dist, err := fs.Sub(webui.Files, "dist")
 	if err != nil {
