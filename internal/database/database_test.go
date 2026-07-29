@@ -112,8 +112,8 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("schema version: got %d, want 3", version)
+	if version != 4 {
+		t.Fatalf("schema version: got %d, want 4", version)
 	}
 
 	tables := []string{
@@ -126,6 +126,9 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 		"recovery_codes",
 		"security_events",
 		"push_subscriptions",
+		"family_members",
+		"schedules",
+		"schedule_participants",
 	}
 	for _, table := range tables {
 		var count int
@@ -197,8 +200,46 @@ func TestDatabaseMigratesE1Schema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("migrated schema version: got %d, want 3", version)
+	if version != 4 {
+		t.Fatalf("migrated schema version: got %d, want 4", version)
+	}
+}
+
+func TestDatabaseCreatesDefaultFamilyMembers(t *testing.T) {
+	database, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	rows, err := database.db.Query(
+		`SELECT slug, display_name, role FROM family_members ORDER BY slug`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var slug, name, role string
+		if err := rows.Scan(&slug, &name, &role); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, slug+":"+name+":"+role)
+	}
+	want := []string{
+		"dad:아빠:parent",
+		"daughter:딸:child",
+		"mom:엄마:parent",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("members: got %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("member %d: got %q, want %q", index, got[index], want[index])
+		}
 	}
 }
 
