@@ -96,6 +96,7 @@ E2 인증·거부 시험과 Tailscale HTTPS 검증이 끝나지 않았으므로 
 - [E1 런타임 구현 결정](docs/decisions/ADR-023-e1-runtime-implementation.md)
 - [E2 사설 외부 접속 결정](docs/decisions/ADR-024-e2-private-remote-access.md)
 - [E2 기기 인증 설계](docs/architecture/e2-authentication-design.md)
+- [부모 모바일 Web Push 구독 결정](docs/decisions/ADR-026-web-push-subscriptions.md)
 - [E2 보안 요구사항 추적표](docs/up/02-elaboration/e2-security-traceability.md)
 - [E1 검증 기록](docs/up/02-elaboration/e1-verification.md)
 - [Synology E1 검증 가이드](deploy/synology/README.md)

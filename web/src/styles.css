@@ -116,6 +116,14 @@ button:disabled { cursor: wait; opacity: .65; }
   background: rgba(196,91,70,.12);
   font-size: .9rem;
 }
+.form-success {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: #245f52;
+  background: rgba(46,128,108,.12);
+  font-size: .9rem;
+}
 .recovery-card { grid-column: 1 / -1; width: min(680px, 100%); margin: 0 auto; }
 .recovery-card h1 { font-size: clamp(2.5rem, 7vw, 4.5rem); }
 .recovery-code {
@@ -144,6 +152,26 @@ button:disabled { cursor: wait; opacity: .65; }
   border-radius: 22px;
   background: rgba(255,255,255,.58);
 }
+.notification-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 26px 30px;
+  border: 1px solid rgba(22,48,45,.14);
+  border-radius: 22px;
+  background: rgba(255,255,255,.58);
+}
+.notification-card strong { display: block; font-size: 1.3rem; }
+.notification-card p:not(.label, .form-error) {
+  max-width: 650px;
+  margin: 8px 0 0;
+  color: #687871;
+  line-height: 1.55;
+}
+.notification-card .form-error,
+.notification-card .form-success { grid-column: 1 / -1; }
 .admin-card.admin-active {
   border-color: rgba(46,128,108,.35);
   background: rgba(229,244,237,.8);
@@ -212,6 +240,7 @@ footer { margin-top: 48px; color: #78847e; font-size: .85rem; }
   .status-card { align-items: stretch; flex-direction: column; }
   .metrics { grid-template-columns: 1fr 1fr; }
   .admin-card { grid-template-columns: 1fr; align-items: stretch; }
+  .notification-card { grid-template-columns: 1fr; align-items: stretch; }
   .setup-layout { grid-template-columns: 1fr; }
   .setup-intro { position: static; margin-bottom: 0; }
 }

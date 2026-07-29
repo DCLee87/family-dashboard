@@ -192,6 +192,21 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		 ON security_events(created_at)`,
 		`INSERT INTO schema_migrations(version) VALUES (2)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS push_subscriptions (
+			id TEXT PRIMARY KEY,
+			device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+			endpoint TEXT NOT NULL,
+			endpoint_hash BLOB NOT NULL UNIQUE CHECK (length(endpoint_hash) = 32),
+			p256dh TEXT NOT NULL,
+			auth TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			revoked_at TEXT
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_active_device
+		 ON push_subscriptions(device_id) WHERE revoked_at IS NULL`,
+		`INSERT INTO schema_migrations(version) VALUES (3)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

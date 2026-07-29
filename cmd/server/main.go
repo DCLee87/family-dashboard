@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -15,16 +16,33 @@ import (
 	"time"
 
 	"github.com/DCLee87/family-dashboard/internal/app"
+	"github.com/DCLee87/family-dashboard/internal/security"
 )
 
 var version = "dev"
 
 func main() {
 	var checkDB bool
+	var generateVAPIDKeys bool
 	flag.BoolVar(&checkDB, "check-db", false, "check database integrity and exit")
+	flag.BoolVar(&generateVAPIDKeys, "generate-vapid-keys", false, "generate VAPID environment values and exit")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if generateVAPIDKeys {
+		privateKey, publicKey, err := security.GenerateVAPIDKeys()
+		if err != nil {
+			logger.Error("VAPID key generation failed", "error", err)
+			os.Exit(1)
+		}
+		_, _ = fmt.Fprintf(
+			os.Stdout,
+			"FAMILY_DASHBOARD_VAPID_PUBLIC_KEY=%s\nFAMILY_DASHBOARD_VAPID_PRIVATE_KEY=%s\n",
+			publicKey,
+			privateKey,
+		)
+		return
+	}
 	localNetworks, err := parsePrefixes(os.Getenv("FAMILY_DASHBOARD_LOCAL_NETWORKS"))
 	if err != nil {
 		logger.Error("invalid local network configuration", "error", err)
@@ -36,13 +54,15 @@ func main() {
 		os.Exit(1)
 	}
 	cfg := app.Config{
-		Address:       env("FAMILY_DASHBOARD_ADDRESS", ":8080"),
-		DataDir:       env("FAMILY_DASHBOARD_DATA_DIR", "./runtime/data"),
-		Version:       version,
-		StartedAt:     time.Now().UTC(),
-		RecordStart:   !checkDB,
-		LocalNetworks: localNetworks,
-		SecureCookies: secureCookies,
+		Address:         env("FAMILY_DASHBOARD_ADDRESS", ":8080"),
+		DataDir:         env("FAMILY_DASHBOARD_DATA_DIR", "./runtime/data"),
+		Version:         version,
+		StartedAt:       time.Now().UTC(),
+		RecordStart:     !checkDB,
+		LocalNetworks:   localNetworks,
+		SecureCookies:   secureCookies,
+		VAPIDPublicKey:  os.Getenv("FAMILY_DASHBOARD_VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey: os.Getenv("FAMILY_DASHBOARD_VAPID_PRIVATE_KEY"),
 	}
 
 	application, err := app.New(cfg, logger)

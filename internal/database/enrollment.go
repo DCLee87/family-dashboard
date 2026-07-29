@@ -435,6 +435,16 @@ func (d *Database) RevokeDevice(
 	}
 	if _, err := tx.ExecContext(
 		ctx,
+		`UPDATE push_subscriptions SET revoked_at = ?, updated_at = ?
+		 WHERE device_id = ? AND revoked_at IS NULL`,
+		nowValue,
+		nowValue,
+		targetID,
+	); err != nil {
+		return fmt.Errorf("revoke device push subscriptions: %w", err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
 		`INSERT INTO security_events(event_type, device_id, result, reason, created_at)
 		 VALUES ('device_revocation', ?, 'success', 'administrator_action', ?)`,
 		targetID,

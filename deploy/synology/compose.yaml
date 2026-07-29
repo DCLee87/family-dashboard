@@ -9,6 +9,8 @@ services:
       FAMILY_DASHBOARD_DATA_DIR: "/data"
       FAMILY_DASHBOARD_LOCAL_NETWORKS: "${FAMILY_DASHBOARD_LOCAL_NETWORKS:-}"
       FAMILY_DASHBOARD_SECURE_COOKIES: "${FAMILY_DASHBOARD_SECURE_COOKIES:-true}"
+    env_file:
+      - ./push.env
     volumes:
       - ./data:/data
     read_only: true

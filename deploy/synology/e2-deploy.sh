@@ -22,6 +22,9 @@ mkdir -p "$backup_dir"
 "$docker_bin" compose stop
 
 cp -p compose.yaml "${backup_dir}/compose.yaml"
+if [ -f push.env ]; then
+  cp -p push.env "${backup_dir}/push.env"
+fi
 for database_file in \
   data/family-dashboard.db \
   data/family-dashboard.db-wal \
@@ -34,6 +37,13 @@ done
 
 "$docker_bin" load -i "${package_dir}/family-dashboard-e2-amd64.tar"
 cp "${package_dir}/compose.yaml" compose.yaml
+
+if [ ! -f push.env ]; then
+  umask 077
+  "$docker_bin" run --rm family-dashboard:e2-amd64 \
+    --generate-vapid-keys > push.env
+fi
+chmod 600 push.env
 
 network_cidr="$(
   "$docker_bin" network inspect family-dashboard_default \

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/DCLee87/family-dashboard/internal/database"
 	"github.com/DCLee87/family-dashboard/internal/security"
 	"github.com/DCLee87/family-dashboard/internal/webui"
+	webpush "github.com/SherClockHolmes/webpush-go"
 )
 
 type Config struct {
@@ -24,20 +26,33 @@ type Config struct {
 	LocalNetworks    []netip.Prefix
 	SecureCookies    bool
 	InitialSetupCode string
+	VAPIDPublicKey   string
+	VAPIDPrivateKey  string
 }
 
 type App struct {
-	config Config
-	db     *database.Database
-	logger *slog.Logger
+	config     Config
+	db         *database.Database
+	logger     *slog.Logger
+	pushClient webpush.HTTPClient
 }
 
 func New(config Config, logger *slog.Logger) (*App, error) {
+	if (config.VAPIDPublicKey == "") != (config.VAPIDPrivateKey == "") {
+		return nil, fmt.Errorf("configure VAPID keys: %w", security.ErrInvalidVAPIDKeys)
+	}
+	if config.VAPIDPublicKey != "" {
+		if err := security.ValidateVAPIDKeys(config.VAPIDPrivateKey, config.VAPIDPublicKey); err != nil {
+			return nil, fmt.Errorf("configure VAPID keys: %w", err)
+		}
+	}
 	db, err := database.Open(config.DataDir, config.RecordStart)
 	if err != nil {
 		return nil, err
 	}
-	application := &App{config: config, db: db, logger: logger}
+	application := &App{
+		config: config, db: db, logger: logger, pushClient: http.DefaultClient,
+	}
 	if config.RecordStart {
 		if err := application.ensureInitialSetupCode(context.Background()); err != nil {
 			db.Close()
@@ -55,6 +70,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup/complete", a.completeSetup)
 	mux.HandleFunc("GET /api/auth/device", a.currentDevice)
 	mux.HandleFunc("POST /api/auth/refresh", a.refreshDevice)
+	mux.HandleFunc("GET /api/push/config", a.pushConfig)
+	mux.HandleFunc("PUT /api/push/subscription", a.replacePushSubscription)
+	mux.HandleFunc("DELETE /api/push/subscription", a.revokePushSubscription)
+	mux.HandleFunc("POST /api/push/test", a.sendTestPush)
 	mux.HandleFunc("POST /api/admin/unlock", a.unlockAdmin)
 	mux.HandleFunc("POST /api/admin/lock", a.lockAdmin)
 	mux.HandleFunc("POST /api/enrollments/submit", a.submitEnrollment)

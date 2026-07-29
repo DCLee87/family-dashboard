@@ -140,11 +140,154 @@ export default function App() {
       </section>
 
       <AdminControl auth={deviceAuth} onChanged={refresh} />
+      <NotificationControl auth={deviceAuth} />
 
       <footer>
         마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"} · 30초마다 자동 갱신
       </footer>
     </main>
+  );
+}
+
+type PushConfig = {
+  enabled: boolean;
+  eligible: boolean;
+  subscribed: boolean;
+  publicKey: string;
+};
+
+function NotificationControl({ auth }: { auth: DeviceAuth | null }) {
+  const [config, setConfig] = useState<PushConfig | null>(null);
+  const [permission, setPermission] = useState<NotificationPermission>(
+    "Notification" in window ? Notification.permission : "denied",
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const refreshConfig = useCallback(async () => {
+    if (!auth || !["parent_mobile", "shared_tablet"].includes(auth.device.type)) {
+      setConfig(null);
+      return;
+    }
+    const response = await fetch("/api/push/config", { cache: "no-store" });
+    if (response.ok) setConfig(await response.json());
+  }, [auth]);
+
+  useEffect(() => {
+    void refreshConfig();
+  }, [refreshConfig]);
+
+  if (!auth || !config?.eligible) return null;
+
+  async function enable() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (!config?.enabled) throw new Error("서버의 알림 키 설정이 아직 완료되지 않았습니다.");
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        throw new Error("이 브라우저는 Web Push를 지원하지 않습니다.");
+      }
+      const result = await Notification.requestPermission();
+      setPermission(result);
+      if (result !== "granted") {
+        throw new Error("알림 권한이 허용되지 않았습니다. 브라우저 사이트 설정에서 변경할 수 있습니다.");
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeBase64URL(config.publicKey),
+      });
+      const response = await fetch("/api/push/subscription", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+      if (!response.ok) throw new Error("알림 구독을 서버에 저장하지 못했습니다.");
+      await refreshConfig();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "알림을 활성화하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) await subscription.unsubscribe();
+      }
+      const response = await fetch("/api/push/subscription", { method: "DELETE" });
+      if (!response.ok) throw new Error("알림 구독을 해제하지 못했습니다.");
+      await refreshConfig();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "알림을 해제하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendTest() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/push/test", {
+        method: "POST",
+        headers: { "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+      });
+      if (!response.ok) throw new Error("테스트 알림을 보내지 못했습니다.");
+      setMessage("테스트 알림을 전송했습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "테스트 알림을 보내지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const status = config.subscribed && permission === "granted"
+    ? "활성화됨"
+    : permission === "denied"
+      ? "브라우저에서 차단됨"
+      : "비활성화";
+
+  return (
+    <section className="notification-card">
+      <div>
+        <p className="label">모바일 알림</p>
+        <strong>{status}</strong>
+        <p>
+          {auth.device.type === "shared_tablet"
+            ? "공용 태블릿 알림은 선택 기능이며 기본적으로 꺼져 있습니다."
+            : "일정과 할 일 알림을 받으려면 이 기기에서 한 번 허용하세요."}
+        </p>
+      </div>
+      {config.subscribed ? (
+        <div className="button-row">
+          {auth.permissions.admin && (
+            <button type="button" disabled={busy} onClick={() => void sendTest()}>
+              테스트 알림
+            </button>
+          )}
+          <button type="button" className="secondary" disabled={busy} onClick={() => void disable()}>
+            {busy ? "처리 중…" : "알림 해제"}
+          </button>
+        </div>
+      ) : (
+        <button type="button" disabled={busy || permission === "denied"} onClick={() => void enable()}>
+          {busy ? "처리 중…" : "알림 활성화"}
+        </button>
+      )}
+      {message && <p className="form-success" role="status">{message}</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </section>
   );
 }
 
@@ -659,6 +802,13 @@ function adminFetch(path: string) {
     method: "POST",
     headers: { "X-CSRF-Token": readCookie("family_dashboard_csrf") },
   });
+}
+
+function decodeBase64URL(value: string) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const binary = window.atob(base64);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 async function fetchDeviceWithRefresh() {
