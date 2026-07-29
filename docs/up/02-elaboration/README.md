@@ -79,6 +79,14 @@ PIN과 원격 접속 방식을 설계·검증한다.
 - [E2 기기 인증 설계](../../architecture/e2-authentication-design.md)
 - [ADR-024: E2 사설 외부 접속 기준선](../../decisions/ADR-024-e2-private-remote-access.md)
 
+## 병행 반복: E3 모바일 범위
+
+E2의 부모 모바일·공용 Android 태블릿 보안 검증을 기반으로 PWA 설치성과
+Web Push 위험을 먼저 검증한다. 사용자가 후속으로 연기한 삼성 TV와 NAS
+복구 시험은 완료 처리하지 않는다.
+
+- [E3 모바일 PWA 검증 계획](e3-plan.md)
+
 ## 종료 조건
 
 - [ ] 주요 기술 위험이 검증됨

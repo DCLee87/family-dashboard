@@ -1,5 +1,10 @@
-const CACHE = "family-dashboard-e2-v1";
-const SHELL = ["/", "/manifest.webmanifest"];
+const CACHE = "family-dashboard-e3-v1";
+const SHELL = [
+  "/",
+  "/manifest.webmanifest",
+  "/icons/app-icon.svg",
+  "/icons/app-icon-maskable.svg",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -19,6 +24,14 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || new URL(event.request.url).pathname.startsWith("/api/")) {
     return;
   }
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match("/")),
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
