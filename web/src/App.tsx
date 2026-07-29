@@ -309,83 +309,137 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
         {auth.permissions.admin && (
           <button type="button" onClick={() => {
             setForm(emptyScheduleForm());
-            setShowForm((current) => !current);
+            setShowForm(form.id ? true : !showForm);
           }}>
-            {showForm ? "입력 닫기" : "일정 추가"}
+            {form.id ? "새 일정" : showForm ? "입력 닫기" : "일정 추가"}
           </button>
         )}
       </div>
 
-      {showForm && auth.permissions.admin && (
-        <form className="schedule-form" onSubmit={(event) => {
-          event.preventDefault();
-          void save();
-        }}>
-          <label>
-            <span>제목</span>
-            <input value={form.title} maxLength={200} onChange={(event) => setForm({ ...form, title: event.target.value })} />
-          </label>
-          <label>
-            <span>장소</span>
-            <input value={form.locationName} maxLength={200} onChange={(event) => setForm({ ...form, locationName: event.target.value })} />
-          </label>
-          <div className="schedule-time-fields">
-            <label>
-              <span>시작</span>
-              <input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} />
-            </label>
-            <label>
-              <span>종료</span>
-              <input type="datetime-local" value={form.endsAt} onChange={(event) => setForm({ ...form, endsAt: event.target.value })} />
-            </label>
-          </div>
-          <label>
-            <span>공개 범위</span>
-            <select value={form.visibility} onChange={(event) => setForm({ ...form, visibility: event.target.value })}>
-              <option value="family">가족 공개</option>
-              <option value="tv_summary">TV 요약</option>
-              <option value="parents_only">부모 전용</option>
-            </select>
-          </label>
-          <fieldset>
-            <legend>대상 가족</legend>
-            <div className="participant-options">
-              {members.map((member) => (
-                <label key={member.id}>
-                  <input
-                    type="checkbox"
-                    checked={form.participants.includes(member.id)}
-                    onChange={() => toggleParticipant(member.id)}
-                  />
-                  <span>{member.displayName}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="button-row">
-            <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.id ? "일정 수정" : "일정 저장"}</button>
-            {form.id && <button type="button" className="secondary" onClick={() => setForm(emptyScheduleForm())}>수정 취소</button>}
-          </div>
-        </form>
+      {showForm && !form.id && auth.permissions.admin && (
+        <ScheduleEditor
+          form={form}
+          members={members}
+          busy={busy}
+          onChange={setForm}
+          onToggleParticipant={toggleParticipant}
+          onSave={() => void save()}
+          onCancel={() => {
+            setForm(emptyScheduleForm());
+            setShowForm(false);
+          }}
+        />
       )}
 
       {error && <p className="form-error">{error}</p>}
       <div className="schedule-list">
-        {occurrences.map((item, index) => (
-          <article key={item.id ?? `${item.startsAt}-${index}`} className={item.summary ? "schedule-summary" : ""}>
-            <div>
-              <time>{formatScheduleTime(item.startsAt, item.endsAt)}</time>
-              <strong>{item.title}</strong>
-              {item.locationName && <span>{item.locationName}</span>}
-              {item.overlap && <span className="overlap-badge">일정 겹침</span>}
-            </div>
-            {auth.permissions.admin && item.id && (
-              <button type="button" className="secondary" onClick={() => editSchedule(item)}>수정</button>
-            )}
-          </article>
-        ))}
+        {occurrences.map((item, index) => {
+          const key = item.id ?? `${item.startsAt}-${index}`;
+          if (item.id && item.id === form.id && auth.permissions.admin) {
+            return (
+              <article key={key} className="schedule-editor-row">
+                <ScheduleEditor
+                  form={form}
+                  members={members}
+                  busy={busy}
+                  onChange={setForm}
+                  onToggleParticipant={toggleParticipant}
+                  onSave={() => void save()}
+                  onCancel={() => {
+                    setForm(emptyScheduleForm());
+                    setShowForm(false);
+                  }}
+                />
+              </article>
+            );
+          }
+          return (
+            <article key={key} className={item.summary ? "schedule-summary" : ""}>
+              <div>
+                <time>{formatScheduleTime(item.startsAt, item.endsAt)}</time>
+                <strong>{item.title}</strong>
+                {item.locationName && <span>{item.locationName}</span>}
+                {item.overlap && <span className="overlap-badge">일정 겹침</span>}
+              </div>
+              {auth.permissions.admin && item.id && (
+                <button type="button" className="secondary" onClick={() => editSchedule(item)}>수정</button>
+              )}
+            </article>
+          );
+        })}
       </div>
     </section>
+  );
+}
+
+function ScheduleEditor({
+  form,
+  members,
+  busy,
+  onChange,
+  onToggleParticipant,
+  onSave,
+  onCancel,
+}: {
+  form: ScheduleForm;
+  members: FamilyMember[];
+  busy: boolean;
+  onChange: (form: ScheduleForm) => void;
+  onToggleParticipant: (id: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form className="schedule-form" onSubmit={(event) => {
+      event.preventDefault();
+      onSave();
+    }}>
+      <label>
+        <span>제목</span>
+        <input value={form.title} maxLength={200} onChange={(event) => onChange({ ...form, title: event.target.value })} />
+      </label>
+      <label>
+        <span>장소</span>
+        <input value={form.locationName} maxLength={200} onChange={(event) => onChange({ ...form, locationName: event.target.value })} />
+      </label>
+      <div className="schedule-time-fields">
+        <label>
+          <span>시작</span>
+          <input type="datetime-local" value={form.startsAt} onChange={(event) => onChange({ ...form, startsAt: event.target.value })} />
+        </label>
+        <label>
+          <span>종료</span>
+          <input type="datetime-local" value={form.endsAt} onChange={(event) => onChange({ ...form, endsAt: event.target.value })} />
+        </label>
+      </div>
+      <label>
+        <span>공개 범위</span>
+        <select value={form.visibility} onChange={(event) => onChange({ ...form, visibility: event.target.value })}>
+          <option value="family">가족 공개</option>
+          <option value="tv_summary">TV 요약</option>
+          <option value="parents_only">부모 전용</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>대상 가족</legend>
+        <div className="participant-options">
+          {members.map((member) => (
+            <label key={member.id}>
+              <input
+                type="checkbox"
+                checked={form.participants.includes(member.id)}
+                onChange={() => onToggleParticipant(member.id)}
+              />
+              <span>{member.displayName}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="button-row">
+        <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.id ? "일정 수정" : "일정 저장"}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={onCancel}>취소</button>
+      </div>
+    </form>
   );
 }
 
