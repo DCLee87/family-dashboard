@@ -18,7 +18,9 @@ func TestScheduleRepositoryCreateListOverlapAndUpdate(t *testing.T) {
 	defer db.Close()
 	if _, err := db.db.Exec(`
 		INSERT INTO devices(id, name, device_type, local_only)
-		VALUES ('pc', 'Home PC', 'trusted_pc', 0)`); err != nil {
+		VALUES
+		 ('pc', 'Home PC', 'trusted_pc', 0),
+		 ('tablet', 'Shared Tablet', 'shared_tablet', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
@@ -58,12 +60,21 @@ func TestScheduleRepositoryCreateListOverlapAndUpdate(t *testing.T) {
 	}
 
 	created.Title = "학교 수정"
-	updated, err := db.UpdateSchedule(ctx, created, "pc", now.Add(time.Minute))
+	updated, err := db.UpdateSchedule(ctx, created, "tablet", now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Version != 2 || updated.Title != "학교 수정" {
 		t.Fatalf("unexpected updated schedule: %#v", updated)
+	}
+	var createdBy, updatedBy string
+	if err := db.db.QueryRow(`
+		SELECT created_by_device_id, updated_by_device_id
+		FROM schedules WHERE id = 'school'`).Scan(&createdBy, &updatedBy); err != nil {
+		t.Fatal(err)
+	}
+	if createdBy != "pc" || updatedBy != "tablet" {
+		t.Fatalf("unexpected audit devices: created=%q updated=%q", createdBy, updatedBy)
 	}
 	if _, err := db.UpdateSchedule(ctx, created, "pc", now.Add(2*time.Minute)); !errors.Is(err, ErrScheduleConflict) {
 		t.Fatalf("stale update: got %v, want %v", err, ErrScheduleConflict)

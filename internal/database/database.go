@@ -233,6 +233,7 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 			starts_at TEXT NOT NULL,
 			ends_at TEXT NOT NULL,
 			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
 			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,

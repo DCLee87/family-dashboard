@@ -60,11 +60,12 @@ func (d *Database) CreateSchedule(
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO schedules(
 			id, title, location_name, notes, visibility, time_kind,
-			starts_at, ends_at, created_by_device_id, version, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, 'timed', ?, ?, ?, 1, ?, ?)`,
+			starts_at, ends_at, created_by_device_id, updated_by_device_id,
+			version, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, 'timed', ?, ?, ?, ?, 1, ?, ?)`,
 		item.ID, strings.TrimSpace(item.Title), nullable(item.LocationName),
 		nullable(item.Notes), item.Visibility, databaseTime(item.StartsAt),
-		databaseTime(item.EndsAt), deviceID, databaseTime(now), databaseTime(now),
+		databaseTime(item.EndsAt), deviceID, deviceID, databaseTime(now), databaseTime(now),
 	)
 	if err != nil {
 		return scheduledomain.Item{}, fmt.Errorf("insert schedule: %w", err)
@@ -100,7 +101,7 @@ func (d *Database) UpdateSchedule(
 		UPDATE schedules SET
 			title = ?, location_name = ?, notes = ?, visibility = ?,
 			starts_at = ?, ends_at = ?, version = version + 1, updated_at = ?,
-			created_by_device_id = ?
+			updated_by_device_id = ?
 		WHERE id = ? AND version = ? AND deleted_at IS NULL`,
 		strings.TrimSpace(item.Title), nullable(item.LocationName), nullable(item.Notes),
 		item.Visibility, databaseTime(item.StartsAt), databaseTime(item.EndsAt),
