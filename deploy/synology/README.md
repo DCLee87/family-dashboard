@@ -48,6 +48,39 @@ E1의 24시간·부하·재시작 검증은 이미 완료되었다. E2 배포 �
 최초 신뢰 기기 등록, 인증 쿠키와 기존 SQLite 데이터 마이그레이션을 별도로
 검증한다.
 
+## C1 일정 기능 배포
+
+C1은 E2/E3 데이터베이스에 schema version 4를 적용하므로 기존 E2 배포
+스크립트와 분리한다.
+
+Mac에서 패키지를 만든다.
+
+```sh
+sh deploy/synology/build-c1-package.sh
+```
+
+기본 출력은 Git에서 무시되는 `runtime/synology-package-c1`이다. NAS에
+`family-dashboard-c1` 디렉터리로 전송한 뒤 명시적인 배포 승인 후 다음을
+실행한다.
+
+```sh
+sudo sh c1-deploy.sh
+```
+
+스크립트는 컨테이너를 멈춘 뒤 DB/WAL/SHM, Compose와 환경 파일을
+`backups/pre-c1-<UTC 시각>`에 보존한다. 새 이미지로 `--check-db`를 먼저
+실행하며 실패하면 서비스를 중지한 채 백업 경로를 출력한다.
+
+되돌리기는 배포가 출력한 정확한 백업 경로를 명시해야 한다.
+
+```sh
+sudo sh c1-rollback.sh /volume1/docker/family-dashboard/backups/pre-c1-<UTC>
+```
+
+롤백은 현재 DB 파일을 백업본으로 교체하는 파괴적 작업이므로 새 C1 일정
+데이터를 보존하지 않는다. 상태 확인과 화면 문제만으로 즉시 롤백하지 말고
+먼저 로그와 `--check-db` 결과를 확인한다.
+
 ## 로컬 전용 기기의 LAN HTTPS
 
 E2 실기기 환경에서는 Synology Reverse Proxy가 LAN HTTPS 요청을
