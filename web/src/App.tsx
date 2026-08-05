@@ -170,6 +170,12 @@ type ScheduleOccurrence = {
   overlap?: boolean;
 };
 
+type FamilyStatusItem = {
+  member: FamilyMember;
+  status: ScheduleOccurrence | null;
+  source: string;
+};
+
 type ScheduleForm = {
   id: string;
   title: string;
@@ -195,6 +201,8 @@ function emptyScheduleForm(): ScheduleForm {
 function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [occurrences, setOccurrences] = useState<ScheduleOccurrence[]>([]);
+  const [familyStatuses, setFamilyStatuses] = useState<FamilyStatusItem[]>([]);
+  const [selectedMember, setSelectedMember] = useState("");
   const [form, setForm] = useState<ScheduleForm>(emptyScheduleForm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -204,6 +212,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
     if (!auth) {
       setMembers([]);
       setOccurrences([]);
+      setFamilyStatuses([]);
       return;
     }
     const today = new Date();
@@ -211,18 +220,23 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
     const to = new Date(from);
     to.setDate(to.getDate() + 1);
     try {
-      const [memberResponse, scheduleResponse] = await Promise.all([
+      const [memberResponse, scheduleResponse, statusResponse] = await Promise.all([
         fetch("/api/v1/family-members", { cache: "no-store" }),
         fetch(`/api/v1/schedule-occurrences?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { cache: "no-store" }),
+        fetch("/api/v1/family-status", { cache: "no-store" }),
       ]);
-      if (!memberResponse.ok || !scheduleResponse.ok) throw new Error("오늘 일정을 불러오지 못했습니다.");
+      if (!memberResponse.ok || !scheduleResponse.ok || !statusResponse.ok) {
+        throw new Error("오늘 일정과 가족 상태를 불러오지 못했습니다.");
+      }
       const memberResult = await memberResponse.json() as { members: FamilyMember[] };
       const scheduleResult = await scheduleResponse.json() as { occurrences: ScheduleOccurrence[] };
+      const statusResult = await statusResponse.json() as { members: FamilyStatusItem[] };
       setMembers(memberResult.members);
       setOccurrences(scheduleResult.occurrences);
+      setFamilyStatuses(statusResult.members);
       setError("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "오늘 일정을 불러오지 못했습니다.");
+      setError(caught instanceof Error ? caught.message : "오늘 일정과 가족 상태를 불러오지 못했습니다.");
     }
   }, [auth]);
 
@@ -231,6 +245,10 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
   }, [refreshSchedules]);
 
   if (!auth) return null;
+
+  const filteredOccurrences = selectedMember
+    ? occurrences.filter((item) => item.participants?.includes(selectedMember))
+    : occurrences;
 
   function toggleParticipant(id: string) {
     setForm((current) => ({
@@ -316,6 +334,49 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
         )}
       </div>
 
+      <div className="family-status-grid" aria-label="일정 기반 가족 상태">
+        {familyStatuses.map((item) => (
+          <article key={item.member.id}>
+            <p className="label">{item.member.displayName}</p>
+            <strong>
+              {item.status
+                ? item.status.locationName || item.status.title
+                : "일정 없음"}
+            </strong>
+            <span>
+              {item.status
+                ? item.status.endsAt
+                  ? `${item.source} · ${formatStatusEnd(item.status.endsAt)}까지`
+                  : item.source
+                : "현재 적용 일정 없음"}
+            </span>
+            {item.status?.overlap && <span className="overlap-badge">일정 겹침</span>}
+          </article>
+        ))}
+      </div>
+
+      <div className="schedule-filters" aria-label="가족별 일정 필터">
+        <button
+          type="button"
+          className={selectedMember === "" ? "filter-active" : "secondary"}
+          aria-pressed={selectedMember === ""}
+          onClick={() => setSelectedMember("")}
+        >
+          전체
+        </button>
+        {members.map((member) => (
+          <button
+            key={member.id}
+            type="button"
+            className={selectedMember === member.id ? "filter-active" : "secondary"}
+            aria-pressed={selectedMember === member.id}
+            onClick={() => setSelectedMember(member.id)}
+          >
+            {member.displayName}
+          </button>
+        ))}
+      </div>
+
       {showForm && !form.id && auth.permissions.admin && (
         <ScheduleEditor
           form={form}
@@ -333,7 +394,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
 
       {error && <p className="form-error">{error}</p>}
       <div className="schedule-list">
-        {occurrences.map((item, index) => {
+        {filteredOccurrences.map((item, index) => {
           const key = item.id ?? `${item.startsAt}-${index}`;
           if (item.id && item.id === form.id && auth.permissions.admin) {
             return (
@@ -367,6 +428,11 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
             </article>
           );
         })}
+        {filteredOccurrences.length === 0 && (
+          <p className="schedule-empty">
+            {selectedMember ? "선택한 가족의 오늘 일정이 없습니다." : "오늘 등록된 일정이 없습니다."}
+          </p>
+        )}
       </div>
     </section>
   );
@@ -451,6 +517,13 @@ function toLocalInput(value: Date): string {
 function formatScheduleTime(startsAt: string, endsAt: string): string {
   const format = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
   return `${format.format(new Date(startsAt))}–${format.format(new Date(endsAt))}`;
+}
+
+function formatStatusEnd(endsAt: string): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(endsAt));
 }
 
 type PushConfig = {
