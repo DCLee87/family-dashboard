@@ -156,6 +156,55 @@ func TestScheduleAPIReportsOverlapAndVersionConflict(t *testing.T) {
 	}
 }
 
+func TestScheduleAPICreatesWeeklyOccurrences(t *testing.T) {
+	application, deviceToken, adminToken, csrfToken := scheduleTestApp(t)
+	defer application.Close()
+	handler := application.Handler()
+
+	create := httptest.NewRequest(http.MethodPost, "http://dashboard.test/api/v1/schedules", bytes.NewBufferString(`{
+		"title":"등교","visibility":"family",
+		"startsAt":"2026-08-03T00:00:00Z","endsAt":"2026-08-03T01:00:00Z",
+		"participants":["daughter"],
+		"recurrence":{"kind":"weekly","weekdays":[1,3],"endsOn":"2026-08-10"}
+	}`))
+	create.Header.Set("Origin", "http://dashboard.test")
+	create.Header.Set("X-CSRF-Token", csrfToken)
+	create.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	create.AddCookie(&http.Cookie{Name: "family_dashboard_admin", Value: adminToken})
+	created := httptest.NewRecorder()
+	handler.ServeHTTP(created, create)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create weekly: got %d; body=%s", created.Code, created.Body.String())
+	}
+
+	list := httptest.NewRequest(http.MethodGet,
+		"http://dashboard.test/api/v1/schedule-occurrences?from=2026-08-02T15:00:00Z&to=2026-08-11T15:00:00Z&member=daughter", nil)
+	list.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, list)
+	if response.Code != http.StatusOK {
+		t.Fatalf("list weekly: got %d; body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Occurrences []struct {
+			Title         string `json:"title"`
+			Recurring     bool   `json:"recurring"`
+			OccurrenceKey string `json:"occurrenceKey"`
+		} `json:"occurrences"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Occurrences) != 3 {
+		t.Fatalf("got %d occurrences, want 3: %#v", len(result.Occurrences), result)
+	}
+	for _, occurrence := range result.Occurrences {
+		if occurrence.Title != "등교" || !occurrence.Recurring || occurrence.OccurrenceKey == "" {
+			t.Fatalf("unexpected recurring occurrence: %#v", occurrence)
+		}
+	}
+}
+
 func scheduleTestApp(t *testing.T) (*App, string, string, string) {
 	t.Helper()
 	application, err := New(Config{

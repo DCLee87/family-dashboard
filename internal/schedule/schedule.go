@@ -21,31 +21,34 @@ var (
 )
 
 type Item struct {
-	ID           string
-	Title        string
-	LocationName string
-	Notes        string
-	Visibility   string
-	StartsAt     time.Time
-	EndsAt       time.Time
-	Participants []string
-	Version      int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID            string
+	Title         string
+	LocationName  string
+	Notes         string
+	Visibility    string
+	StartsAt      time.Time
+	EndsAt        time.Time
+	Participants  []string
+	Version       int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	OccurrenceKey string
 }
 
 type View struct {
-	ID           string     `json:"id,omitempty"`
-	Title        string     `json:"title"`
-	LocationName string     `json:"locationName,omitempty"`
-	Notes        string     `json:"notes,omitempty"`
-	Visibility   string     `json:"visibility,omitempty"`
-	StartsAt     *time.Time `json:"startsAt,omitempty"`
-	EndsAt       *time.Time `json:"endsAt,omitempty"`
-	Participants []string   `json:"participants,omitempty"`
-	Version      int64      `json:"version,omitempty"`
-	Summary      bool       `json:"summary,omitempty"`
-	Overlap      bool       `json:"overlap,omitempty"`
+	ID            string     `json:"id,omitempty"`
+	Title         string     `json:"title"`
+	LocationName  string     `json:"locationName,omitempty"`
+	Notes         string     `json:"notes,omitempty"`
+	Visibility    string     `json:"visibility,omitempty"`
+	StartsAt      *time.Time `json:"startsAt,omitempty"`
+	EndsAt        *time.Time `json:"endsAt,omitempty"`
+	Participants  []string   `json:"participants,omitempty"`
+	Version       int64      `json:"version,omitempty"`
+	Summary       bool       `json:"summary,omitempty"`
+	Overlap       bool       `json:"overlap,omitempty"`
+	OccurrenceKey string     `json:"occurrenceKey,omitempty"`
+	Recurring     bool       `json:"recurring,omitempty"`
 }
 
 type Audience string
@@ -105,7 +108,8 @@ func Project(item Item, audience Audience) (View, bool) {
 		ID: item.ID, Title: item.Title, LocationName: item.LocationName,
 		Notes: item.Notes, Visibility: item.Visibility, StartsAt: timePointer(item.StartsAt),
 		EndsAt: timePointer(item.EndsAt), Participants: item.Participants,
-		Version: item.Version,
+		Version: item.Version, OccurrenceKey: item.OccurrenceKey,
+		Recurring: item.OccurrenceKey != "",
 	}, true
 }
 

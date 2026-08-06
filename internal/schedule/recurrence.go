@@ -122,6 +122,7 @@ func ExpandWeekly(
 				}
 			}
 		}
+		item.OccurrenceKey = key
 		if item.EndsAt.After(from) && item.StartsAt.Before(to) {
 			result = append(result, Occurrence{Item: item, OccurrenceKey: key, OriginalStart: start.UTC()})
 		}

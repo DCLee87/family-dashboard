@@ -111,3 +111,49 @@ func TestScheduleRepositoryRejectsUnknownParticipantAtomically(t *testing.T) {
 		t.Fatal("failed schedule creation left a partial schedule")
 	}
 }
+
+func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.db.Exec(`INSERT INTO devices(id, name, device_type, local_only) VALUES ('pc', 'Home PC', 'trusted_pc', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	location, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startsOn := time.Date(2026, 8, 3, 0, 0, 0, 0, location)
+	endsOn := time.Date(2026, 8, 10, 0, 0, 0, 0, location)
+	item := scheduledomain.Item{
+		ID: "weekly-school", Title: "등교", Visibility: scheduledomain.VisibilityFamily,
+		StartsAt:     time.Date(2026, 8, 3, 9, 0, 0, 0, location).UTC(),
+		EndsAt:       time.Date(2026, 8, 3, 10, 0, 0, 0, location).UTC(),
+		Participants: []string{"daughter"},
+	}
+	created, err := db.CreateWeeklySchedule(ctx, scheduledomain.WeeklyRule{
+		Item: item, StartsOn: startsOn, EndsOn: &endsOn,
+		Weekdays: []time.Weekday{time.Monday, time.Wednesday}, StartMinute: 9 * 60, EndMinute: 10 * 60,
+	}, "pc", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Version != 1 {
+		t.Fatalf("unexpected version: %d", created.Version)
+	}
+	items, err := db.SchedulesBetween(ctx, startsOn.UTC(), endsOn.AddDate(0, 0, 1).UTC(), "daughter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("got %d occurrences, want 3: %#v", len(items), items)
+	}
+	for _, occurrence := range items {
+		if occurrence.ID != item.ID || occurrence.OccurrenceKey == "" {
+			t.Fatalf("unexpected occurrence: %#v", occurrence)
+		}
+	}
+}

@@ -170,7 +170,9 @@ func (d *Database) SchedulesBetween(
 		       s.starts_at, s.ends_at, s.version, s.created_at, s.updated_at
 		FROM schedules s
 		JOIN schedule_participants p ON p.schedule_id = s.id
-		WHERE s.deleted_at IS NULL AND s.ends_at > ? AND s.starts_at < ?`
+		LEFT JOIN schedule_recurrence_rules r ON r.schedule_id = s.id
+		WHERE s.deleted_at IS NULL AND r.schedule_id IS NULL
+		  AND s.ends_at > ? AND s.starts_at < ?`
 	args := []any{databaseTime(from), databaseTime(to)}
 	if memberID != "" {
 		query += ` AND p.family_member_id = ?`

@@ -4,10 +4,91 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	scheduledomain "github.com/DCLee87/family-dashboard/internal/schedule"
 )
+
+func (d *Database) CreateWeeklySchedule(
+	ctx context.Context,
+	rule scheduledomain.WeeklyRule,
+	deviceID string,
+	now time.Time,
+) (scheduledomain.Item, error) {
+	location, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("load family timezone: %w", err)
+	}
+	if err := scheduledomain.Validate(rule.Item); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	if err := scheduledomain.ValidateWeeklyRule(rule, location); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("begin weekly schedule creation: %w", err)
+	}
+	defer tx.Rollback()
+	if err := validateParticipants(ctx, tx, rule.Item.Participants); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	item := rule.Item
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO schedules(
+			id, title, location_name, notes, visibility, time_kind,
+			starts_at, ends_at, created_by_device_id, updated_by_device_id,
+			version, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, 'timed', ?, ?, ?, ?, 1, ?, ?)`,
+		item.ID, strings.TrimSpace(item.Title), nullable(item.LocationName), nullable(item.Notes),
+		item.Visibility, databaseTime(item.StartsAt), databaseTime(item.EndsAt), deviceID, deviceID,
+		databaseTime(now), databaseTime(now),
+	)
+	if err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("insert recurring schedule: %w", err)
+	}
+	for _, participant := range unique(item.Participants) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_participants(schedule_id, family_member_id) VALUES (?, ?)`, item.ID, participant); err != nil {
+			return scheduledomain.Item{}, fmt.Errorf("insert recurring schedule participant: %w", err)
+		}
+	}
+	var endsOn any
+	if rule.EndsOn != nil {
+		endsOn = rule.EndsOn.In(location).Format("2006-01-02")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_recurrence_rules(
+		schedule_id, recurrence_kind, starts_on, ends_on, start_minute, end_minute, timezone
+	) VALUES (?, 'weekly', ?, ?, ?, ?, 'Asia/Seoul')`, item.ID,
+		rule.StartsOn.In(location).Format("2006-01-02"), endsOn, rule.StartMinute, rule.EndMinute); err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("insert weekly rule: %w", err)
+	}
+	for _, weekday := range uniqueWeekdaysForStorage(rule.Weekdays) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_recurrence_days(schedule_id, weekday) VALUES (?, ?)`, item.ID, int(weekday)); err != nil {
+			return scheduledomain.Item{}, fmt.Errorf("insert weekly day: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("commit weekly schedule creation: %w", err)
+	}
+	return d.ScheduleByID(ctx, item.ID)
+}
+
+func uniqueWeekdaysForStorage(values []time.Weekday) []time.Weekday {
+	seen := make(map[time.Weekday]struct{}, len(values))
+	result := make([]time.Weekday, 0, len(values))
+	for _, value := range values {
+		if value < time.Sunday || value > time.Saturday {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
 
 func (d *Database) RecurringOccurrencesBetween(ctx context.Context, from, to time.Time, memberID string) ([]scheduledomain.Item, error) {
 	rules, err := d.WeeklyRules(ctx)
