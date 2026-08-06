@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -176,7 +177,22 @@ func (d *Database) SchedulesBetween(
 		args = append(args, memberID)
 	}
 	query += ` ORDER BY s.starts_at, s.id`
-	return d.querySchedules(ctx, query, args...)
+	items, err := d.querySchedules(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	recurring, err := d.RecurringOccurrencesBetween(ctx, from, to, memberID)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, recurring...)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].StartsAt.Equal(items[j].StartsAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].StartsAt.Before(items[j].StartsAt)
+	})
+	return items, nil
 }
 
 func (d *Database) OverlappingSchedules(

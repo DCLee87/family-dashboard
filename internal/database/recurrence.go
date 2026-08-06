@@ -9,6 +9,40 @@ import (
 	scheduledomain "github.com/DCLee87/family-dashboard/internal/schedule"
 )
 
+func (d *Database) RecurringOccurrencesBetween(ctx context.Context, from, to time.Time, memberID string) ([]scheduledomain.Item, error) {
+	rules, err := d.WeeklyRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	location, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return nil, err
+	}
+	var items []scheduledomain.Item
+	for _, rule := range rules {
+		occurrences, err := scheduledomain.ExpandWeekly(rule, from, to, location, nil)
+		if err != nil {
+			return nil, err
+		}
+		for _, occurrence := range occurrences {
+			if memberID != "" {
+				found := false
+				for _, participant := range occurrence.Participants {
+					if participant == memberID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+			items = append(items, occurrence.Item)
+		}
+	}
+	return items, nil
+}
+
 func (d *Database) SaveWeeklyRule(ctx context.Context, rule scheduledomain.WeeklyRule) error {
 	location, err := time.LoadLocation("Asia/Seoul")
 	if err != nil {
