@@ -272,6 +272,20 @@ button.filter-active { background: #2e806c; }
   color: #687871;
   line-height: 1.55;
 }
+.enrollment-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.enrollment-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 13px 20px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.enrollment-link.primary { color: white; background: #16302d; }
+.enrollment-link.primary:hover { background: #2e5650; }
+.enrollment-link.secondary { color: #16302d; background: rgba(22,48,45,.08); }
+.enrollment-link.secondary:hover { background: rgba(22,48,45,.14); }
 .unlock-form { grid-column: 1 / -1; display: grid; gap: 14px; }
 .unlock-form label { display: grid; gap: 8px; max-width: 280px; }
 .unlock-form label span { color: #435b55; font-size: .9rem; font-weight: 700; }
