@@ -283,6 +283,12 @@ func TestScheduleAPICreatesMultiDayAllDaySchedule(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create all-day: got %d; body=%s", created.Code, created.Body.String())
 	}
+	var createdAllDay struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(created.Body).Decode(&createdAllDay); err != nil {
+		t.Fatal(err)
+	}
 
 	list := httptest.NewRequest(http.MethodGet,
 		"http://dashboard.test/api/v1/schedule-occurrences?from=2026-08-10T15:00:00Z&to=2026-08-11T15:00:00Z&member=dad", nil)
@@ -294,6 +300,7 @@ func TestScheduleAPICreatesMultiDayAllDaySchedule(t *testing.T) {
 			TimeKind, StartDate, EndDate string
 			StartsAt                     *string `json:"startsAt"`
 			Recurring                    bool    `json:"recurring"`
+			OccurrenceKey                string  `json:"occurrenceKey"`
 		} `json:"occurrences"`
 	}
 	if response.Code != http.StatusOK {
@@ -306,6 +313,43 @@ func TestScheduleAPICreatesMultiDayAllDaySchedule(t *testing.T) {
 		result.Occurrences[0].StartDate != "2026-08-10" || result.Occurrences[0].EndDate != "2026-08-12" ||
 		result.Occurrences[0].StartsAt != nil || !result.Occurrences[0].Recurring {
 		t.Fatalf("unexpected all-day response: %#v", result)
+	}
+
+	update := httptest.NewRequest(http.MethodPut,
+		"http://dashboard.test/api/v1/schedules/"+createdAllDay.ID+"/occurrences/2026-08-10T00:00",
+		bytes.NewBufferString(`{
+			"title":"이동한 가족여행","visibility":"family","timeKind":"all_day",
+			"startDate":"2026-08-11","endDate":"2026-08-13","participants":["dad"],
+			"occurrenceVersion":0
+		}`))
+	update.Header.Set("Origin", "http://dashboard.test")
+	update.Header.Set("X-CSRF-Token", csrfToken)
+	update.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	update.AddCookie(&http.Cookie{Name: "family_dashboard_admin", Value: adminToken})
+	updated := httptest.NewRecorder()
+	handler.ServeHTTP(updated, update)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update all-day occurrence: got %d; body=%s", updated.Code, updated.Body.String())
+	}
+
+	movedList := httptest.NewRequest(http.MethodGet,
+		"http://dashboard.test/api/v1/schedule-occurrences?from=2026-08-12T15:00:00Z&to=2026-08-13T15:00:00Z&member=dad", nil)
+	movedList.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	movedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(movedResponse, movedList)
+	var movedResult struct {
+		Occurrences []struct {
+			Title, StartDate, EndDate, OccurrenceKey string
+			OccurrenceVersion                        int64
+		} `json:"occurrences"`
+	}
+	if err := json.NewDecoder(movedResponse.Body).Decode(&movedResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(movedResult.Occurrences) != 1 || movedResult.Occurrences[0].Title != "이동한 가족여행" ||
+		movedResult.Occurrences[0].StartDate != "2026-08-11" || movedResult.Occurrences[0].EndDate != "2026-08-13" ||
+		movedResult.Occurrences[0].OccurrenceKey != "2026-08-10T00:00" || movedResult.Occurrences[0].OccurrenceVersion != 1 {
+		t.Fatalf("unexpected moved all-day occurrence: %#v", movedResult)
 	}
 }
 

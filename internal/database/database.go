@@ -301,6 +301,18 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		)`,
 		`INSERT INTO schema_migrations(version) VALUES (6)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_occurrence_all_day_overrides (
+			schedule_id TEXT NOT NULL,
+			occurrence_key TEXT NOT NULL,
+			start_date TEXT NOT NULL,
+			end_date TEXT NOT NULL,
+			CHECK (end_date >= start_date),
+			PRIMARY KEY(schedule_id, occurrence_key),
+			FOREIGN KEY(schedule_id, occurrence_key)
+			 REFERENCES schedule_occurrence_exceptions(schedule_id, occurrence_key) ON DELETE CASCADE
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (7)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

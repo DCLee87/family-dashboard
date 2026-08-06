@@ -499,7 +499,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                 {item.locationName && <span>{item.locationName}</span>}
                 {item.overlap && <span className="overlap-badge">일정 겹침</span>}
               </div>
-              {auth.permissions.admin && item.id && !(item.recurring && item.timeKind === "all_day") && (
+              {auth.permissions.admin && item.id && (
                 <button type="button" className="secondary" onClick={() => editSchedule(item)}>
                   {item.recurring ? "이번 회차 수정" : "수정"}
                 </button>

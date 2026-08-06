@@ -102,8 +102,36 @@ func ExpandWeekly(
 		last = endsOn
 	}
 
-	var result []Occurrence
+	var dates []time.Time
+	seenDates := make(map[string]struct{})
 	for date := first; !date.After(last); date = date.AddDate(0, 0, 1) {
+		key := date.Format("2006-01-02")
+		seenDates[key] = struct{}{}
+		dates = append(dates, date)
+	}
+	for _, exception := range exceptions {
+		if exception.Override == nil || !exception.Override.EndsAt.After(from) || !exception.Override.StartsAt.Before(to) {
+			continue
+		}
+		original, err := time.ParseInLocation("2006-01-02T15:04", exception.OccurrenceKey, location)
+		if err != nil {
+			return nil, ErrInvalidOccurrence
+		}
+		date := localDate(original, location)
+		key := date.Format("2006-01-02")
+		if _, exists := seenDates[key]; exists {
+			continue
+		}
+		seenDates[key] = struct{}{}
+		dates = append(dates, date)
+	}
+	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
+
+	var result []Occurrence
+	for _, date := range dates {
+		if date.Before(startsOn) || date.After(endsOn) {
+			continue
+		}
 		if _, ok := allowedDays[date.Weekday()]; !ok {
 			continue
 		}

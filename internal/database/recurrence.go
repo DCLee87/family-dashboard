@@ -14,23 +14,28 @@ import (
 var ErrOccurrenceConflict = errors.New("occurrence version conflict")
 
 func (d *Database) OccurrenceExceptions(ctx context.Context, scheduleID string) ([]scheduledomain.OccurrenceException, error) {
-	rows, err := d.db.QueryContext(ctx, `SELECT occurrence_key, status, override_title,
-		override_location_name, override_notes, override_visibility, override_starts_at,
-		override_ends_at, version
-		FROM schedule_occurrence_exceptions WHERE schedule_id = ? ORDER BY occurrence_key`, scheduleID)
+	rows, err := d.db.QueryContext(ctx, `SELECT e.occurrence_key, e.status, e.override_title,
+		e.override_location_name, e.override_notes, e.override_visibility, e.override_starts_at,
+		e.override_ends_at, e.version, a.start_date, a.end_date
+		FROM schedule_occurrence_exceptions e
+		LEFT JOIN schedule_occurrence_all_day_overrides a
+		  ON a.schedule_id = e.schedule_id AND a.occurrence_key = e.occurrence_key
+		WHERE e.schedule_id = ? ORDER BY e.occurrence_key`, scheduleID)
 	if err != nil {
 		return nil, fmt.Errorf("list occurrence exceptions: %w", err)
 	}
 	type storedException struct {
 		key, status                                          string
 		title, location, notes, visibility, startsAt, endsAt sql.NullString
+		startDate, endDate                                   sql.NullString
 		version                                              int64
 	}
 	var stored []storedException
 	for rows.Next() {
 		var value storedException
 		if err := rows.Scan(&value.key, &value.status, &value.title, &value.location,
-			&value.notes, &value.visibility, &value.startsAt, &value.endsAt, &value.version); err != nil {
+			&value.notes, &value.visibility, &value.startsAt, &value.endsAt, &value.version,
+			&value.startDate, &value.endDate); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan occurrence exception: %w", err)
 		}
@@ -63,6 +68,12 @@ func (d *Database) OccurrenceExceptions(ctx context.Context, scheduleID string) 
 			override.EndsAt, err = parseDatabaseTime(value.endsAt.String)
 			if err != nil {
 				return nil, err
+			}
+			if override.TimeKind == scheduledomain.TimeKindAllDay {
+				override.StartDate, override.EndDate = value.startDate.String, value.endDate.String
+				if !value.startDate.Valid || !value.endDate.Valid {
+					return nil, scheduledomain.ErrInvalidOccurrence
+				}
 			}
 			exception.Override = &override
 		}
@@ -130,6 +141,14 @@ func (d *Database) SaveOccurrenceException(
 	}
 	if err != nil {
 		return 0, fmt.Errorf("save occurrence exception: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM schedule_occurrence_all_day_overrides WHERE schedule_id = ? AND occurrence_key = ?`, scheduleID, exception.OccurrenceKey); err != nil {
+		return 0, fmt.Errorf("replace occurrence all-day dates: %w", err)
+	}
+	if exception.Override != nil && exception.Override.TimeKind == scheduledomain.TimeKindAllDay {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_occurrence_all_day_overrides(schedule_id, occurrence_key, start_date, end_date) VALUES (?, ?, ?, ?)`, scheduleID, exception.OccurrenceKey, exception.Override.StartDate, exception.Override.EndDate); err != nil {
+			return 0, fmt.Errorf("insert occurrence all-day dates: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit occurrence exception: %w", err)
