@@ -178,3 +178,9 @@ func requestInNetworks(r *http.Request, networks []netip.Prefix) bool {
 	}
 	return false
 }
+
+func requestFromTailscale(r *http.Request) bool {
+	return r.Header.Get("Tailscale-User-Login") != "" ||
+		r.Header.Get("Tailscale-User-Name") != "" ||
+		r.Header.Get("Tailscale-User-Profile-Pic") != ""
+}

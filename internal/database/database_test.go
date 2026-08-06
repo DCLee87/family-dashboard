@@ -276,7 +276,7 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 	}
 	claimHash := [32]byte{6}
 	submitted, err := database.SubmitEnrollment(
-		ctx, codeHash, claimHash, "Dad Phone", "dad", now,
+		ctx, codeHash, claimHash, "Dad Phone", "dad", "", now,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 		t.Fatalf("unexpected submission: %#v", submitted)
 	}
 	if _, err := database.SubmitEnrollment(
-		ctx, codeHash, [32]byte{7}, "Other Phone", "mom", now,
+		ctx, codeHash, [32]byte{7}, "Other Phone", "mom", "", now,
 	); !errors.Is(err, ErrInvalidEnrollment) {
 		t.Fatalf("enrollment code reuse: got %v, want %v", err, ErrInvalidEnrollment)
 	}
@@ -443,6 +443,7 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 		rejectedClaim,
 		"Rejected Phone",
 		"mom",
+		"",
 		now,
 	); err != nil {
 		t.Fatal(err)
@@ -489,6 +490,7 @@ func TestParentMobileEnrollmentAndIndependentRevocation(t *testing.T) {
 		[32]byte{18},
 		"Expired Phone",
 		"dad",
+		"",
 		now,
 	); !errors.Is(err, ErrInvalidEnrollment) {
 		t.Fatalf("expired enrollment was submitted: got %v", err)
@@ -527,7 +529,7 @@ func TestSharedTabletEnrollmentAndExternalRefreshRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	submitted, err := database.SubmitEnrollment(
-		ctx, codeHash, claimHash, "Living Room Tablet", "", now,
+		ctx, codeHash, claimHash, "Living Room Tablet", "", "", now,
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/DCLee87/family-dashboard/internal/security"
 )
 
 func TestHealthAndRuntime(t *testing.T) {
@@ -213,6 +216,85 @@ func TestTailscaleServeRequestIsNotLocal(t *testing.T) {
 	networks := []netip.Prefix{netip.MustParsePrefix("172.20.0.0/16")}
 	if requestInNetworks(request, networks) {
 		t.Fatal("Tailscale Serve request was classified as local")
+	}
+}
+
+func TestParentEnrollmentIsAllowedThroughTailscaleServe(t *testing.T) {
+	application, err := New(Config{
+		DataDir:       t.TempDir(),
+		StartedAt:     time.Now(),
+		RecordStart:   false,
+		SecureCookies: true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+
+	now := time.Now().UTC()
+	code := "12345678"
+	if err := application.db.CreateEnrollment(
+		context.Background(), "tailscale-parent", security.TokenHash(code),
+		"parent_mobile", now.Add(10*time.Minute), now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"https://dashboard.example/api/enrollments/submit",
+		bytes.NewBufferString(`{"code":"12345678","deviceName":"Dad Phone","owner":"dad","type":"parent_mobile"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://dashboard.example")
+	request.Header.Set("Tailscale-User-Login", "family-member@example.test")
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("parent enrollment status: got %d, want %d; body=%s", response.Code, http.StatusAccepted, response.Body.String())
+	}
+}
+
+func TestSharedTabletEnrollmentIsDeniedThroughTailscaleServe(t *testing.T) {
+	application, err := New(Config{
+		DataDir:       t.TempDir(),
+		StartedAt:     time.Now(),
+		RecordStart:   false,
+		SecureCookies: true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+
+	now := time.Now().UTC()
+	code := "87654321"
+	if err := application.db.CreateEnrollment(
+		context.Background(), "tailscale-tablet", security.TokenHash(code),
+		"shared_tablet", now.Add(10*time.Minute), now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"https://dashboard.example/api/enrollments/submit",
+		bytes.NewBufferString(`{"code":"87654321","deviceName":"Tablet","owner":"","type":"shared_tablet"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://dashboard.example")
+	request.Header.Set("Tailscale-User-Login", "family-member@example.test")
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("tablet enrollment status: got %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	var result map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result["status"] != "local_network_required" {
+		t.Fatalf("tablet enrollment response: %#v", result)
 	}
 }
 

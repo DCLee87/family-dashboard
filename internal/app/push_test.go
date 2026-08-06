@@ -111,7 +111,7 @@ func TestParentMobileCanReplaceAndRevokePushSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := application.db.SubmitEnrollment(
-		ctx, codeHash, claimHash, "Parent phone", "dad", now,
+		ctx, codeHash, claimHash, "Parent phone", "dad", "", now,
 	); err != nil {
 		t.Fatal(err)
 	}

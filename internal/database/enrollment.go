@@ -60,6 +60,7 @@ func (d *Database) SubmitEnrollment(
 	claimHash [32]byte,
 	deviceName string,
 	owner string,
+	requiredType string,
 	now time.Time,
 ) (Enrollment, error) {
 	var enrollment Enrollment
@@ -70,6 +71,7 @@ func (d *Database) SubmitEnrollment(
 		 SET code_hash = ?, device_name = ?, owner = NULLIF(?, ''), status = 'submitted',
 		     submitted_at = ?
 		 WHERE code_hash = ? AND status = 'pending' AND expires_at > ?
+		   AND (? = '' OR requested_type = ?)
 		   AND (
 		     (requested_type = 'parent_mobile' AND ? IN ('dad', 'mom'))
 		     OR (requested_type = 'shared_tablet' AND ? = '')
@@ -81,6 +83,8 @@ func (d *Database) SubmitEnrollment(
 		databaseTime(now),
 		codeHash[:],
 		databaseTime(now),
+		requiredType,
+		requiredType,
 		owner,
 		owner,
 	).Scan(
