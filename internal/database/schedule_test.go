@@ -215,7 +215,8 @@ func TestAllDayScheduleAppearsOnEveryIncludedDate(t *testing.T) {
 		EndsAt:       time.Date(2026, 8, 13, 0, 0, 0, 0, location).UTC(),
 		Participants: []string{"dad"},
 	}
-	if _, err := db.CreateAllDaySchedule(ctx, item, "pc", time.Now().UTC()); err != nil {
+	created, err := db.CreateAllDaySchedule(ctx, item, "pc", time.Now().UTC())
+	if err != nil {
 		t.Fatal(err)
 	}
 	for day := 10; day <= 12; day++ {
@@ -224,5 +225,15 @@ func TestAllDayScheduleAppearsOnEveryIncludedDate(t *testing.T) {
 		if err != nil || len(items) != 1 || items[0].TimeKind != scheduledomain.TimeKindAllDay {
 			t.Fatalf("day %d: items=%#v error=%v", day, items, err)
 		}
+	}
+	created.StartDate, created.EndDate = "2026-08-11", "2026-08-13"
+	created.StartsAt = time.Date(2026, 8, 11, 0, 0, 0, 0, location).UTC()
+	created.EndsAt = time.Date(2026, 8, 14, 0, 0, 0, 0, location).UTC()
+	updated, err := db.UpdateAllDaySchedule(ctx, created, "pc", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != 2 || updated.StartDate != "2026-08-11" || updated.EndDate != "2026-08-13" {
+		t.Fatalf("unexpected all-day update: %#v", updated)
 	}
 }

@@ -328,16 +328,16 @@ func (a *App) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if item.TimeKind == scheduledomain.TimeKindAllDay {
-		writeAPIError(w, http.StatusBadRequest, "all_day_update_unsupported", "종일 일정 수정은 아직 지원하지 않습니다.")
-		return
-	}
 	item.ID = r.PathValue("id")
 	if item.Version < 1 {
 		writeAPIError(w, http.StatusBadRequest, "version_required", "일정 버전이 필요합니다.")
 		return
 	}
-	overlaps, err := a.db.OverlappingSchedules(r.Context(), item)
+	var overlaps []scheduledomain.Item
+	var err error
+	if item.TimeKind != scheduledomain.TimeKindAllDay {
+		overlaps, err = a.db.OverlappingSchedules(r.Context(), item)
+	}
 	if err != nil {
 		a.scheduleInternalError(w, "schedule overlap check failed", err)
 		return
@@ -349,7 +349,12 @@ func (a *App) updateSchedule(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	updated, err := a.db.UpdateSchedule(r.Context(), item, device.ID, time.Now().UTC())
+	var updated scheduledomain.Item
+	if item.TimeKind == scheduledomain.TimeKindAllDay {
+		updated, err = a.db.UpdateAllDaySchedule(r.Context(), item, device.ID, time.Now().UTC())
+	} else {
+		updated, err = a.db.UpdateSchedule(r.Context(), item, device.ID, time.Now().UTC())
+	}
 	switch {
 	case errors.Is(err, database.ErrScheduleNotFound):
 		writeAPIError(w, http.StatusNotFound, "schedule_not_found", "일정을 찾을 수 없습니다.")

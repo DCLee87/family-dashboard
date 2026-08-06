@@ -278,22 +278,24 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
   }
 
   function editSchedule(item: ScheduleOccurrence) {
-    if (!item.id || !item.startsAt || !item.endsAt) return;
+    if (!item.id) return;
+    const fallbackStart = new Date();
+    const fallbackEnd = new Date(fallbackStart.getTime() + 60 * 60 * 1000);
     setForm({
       id: item.id,
       title: item.title,
       locationName: item.locationName ?? "",
       visibility: item.visibility ?? "family",
-      startsAt: toLocalInput(new Date(item.startsAt)),
-      endsAt: toLocalInput(new Date(item.endsAt)),
+      startsAt: toLocalInput(item.startsAt ? new Date(item.startsAt) : fallbackStart),
+      endsAt: toLocalInput(item.endsAt ? new Date(item.endsAt) : fallbackEnd),
       participants: item.participants ?? [],
       version: item.version ?? 1,
       weeklyRepeat: false,
-      weekdays: [new Date(item.startsAt).getDay()],
+      weekdays: [(item.startsAt ? new Date(item.startsAt) : fallbackStart).getDay()],
       recurrenceEndsOn: "",
       occurrenceKey: item.occurrenceKey ?? "",
       occurrenceVersion: item.occurrenceVersion ?? 0,
-      allDay: false,
+      allDay: item.timeKind === "all_day",
       startDate: item.startDate ?? "",
       endDate: item.endDate ?? "",
     });
@@ -497,7 +499,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                 {item.locationName && <span>{item.locationName}</span>}
                 {item.overlap && <span className="overlap-badge">일정 겹침</span>}
               </div>
-              {auth.permissions.admin && item.id && item.timeKind !== "all_day" && (
+              {auth.permissions.admin && item.id && (
                 <button type="button" className="secondary" onClick={() => editSchedule(item)}>
                   {item.recurring ? "이번 회차 수정" : "수정"}
                 </button>
