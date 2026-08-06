@@ -62,8 +62,7 @@ func (a *App) createEnrollment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) submitEnrollment(w http.ResponseWriter, r *http.Request) {
-	if !validSameOrigin(r, a.config.SecureCookies) ||
-		!requestInNetworks(r, a.config.LocalNetworks) {
+	if !validSameOrigin(r, a.config.SecureCookies) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden"})
 		return
 	}
@@ -71,6 +70,7 @@ func (a *App) submitEnrollment(w http.ResponseWriter, r *http.Request) {
 		Code       string `json:"code"`
 		DeviceName string `json:"deviceName"`
 		Owner      string `json:"owner"`
+		Type       string `json:"type"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
@@ -87,9 +87,17 @@ func (a *App) submitEnrollment(w http.ResponseWriter, r *http.Request) {
 	if len(request.Code) != 8 ||
 		utf8.RuneCountInString(request.DeviceName) < 1 ||
 		utf8.RuneCountInString(request.DeviceName) > 80 ||
+		(request.Type != "" && request.Type != "parent_mobile" && request.Type != "shared_tablet") ||
 		(request.Owner != "" && request.Owner != "dad" && request.Owner != "mom") {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "invalid_request"})
 		return
+	}
+	requiredType := request.Type
+	if !requestInNetworks(r, a.config.LocalNetworks) {
+		if !requestFromTailscale(r) || request.Type != "parent_mobile" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"status": "local_network_required"})
+			return
+		}
 	}
 	claimToken := security.NewToken()
 	enrollment, err := a.db.SubmitEnrollment(
@@ -98,6 +106,7 @@ func (a *App) submitEnrollment(w http.ResponseWriter, r *http.Request) {
 		security.TokenHash(claimToken),
 		request.DeviceName,
 		request.Owner,
+		requiredType,
 		time.Now().UTC(),
 	)
 	if errors.Is(err, database.ErrInvalidEnrollment) {

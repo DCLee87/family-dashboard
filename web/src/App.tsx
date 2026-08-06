@@ -978,10 +978,13 @@ function DeviceEnrollment({ type }: { type: "parent_mobile" | "shared_tablet" })
     const response = await fetch("/api/enrollments/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, deviceName, owner: type === "parent_mobile" ? owner : "" }),
+      body: JSON.stringify({ code, deviceName, owner: type === "parent_mobile" ? owner : "", type }),
     });
     if (!response.ok) {
-      setError("등록 코드가 잘못되었거나 만료되었습니다.");
+      const result = await response.json().catch(() => ({ status: "" }));
+      setError(response.status === 403 && result.status === "local_network_required"
+        ? "새 기기 등록은 집 Wi-Fi 또는 부모용 Tailscale 주소에서 진행하세요."
+        : "등록 코드가 잘못되었거나 만료되었습니다.");
       return;
     }
     const result = await response.json();
