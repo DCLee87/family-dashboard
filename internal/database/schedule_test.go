@@ -196,3 +196,33 @@ func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
 		t.Fatalf("override was not persisted with stable key: %#v", items[1])
 	}
 }
+
+func TestAllDayScheduleAppearsOnEveryIncludedDate(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.db.Exec(`INSERT INTO devices(id, name, device_type, local_only) VALUES ('pc', 'Home PC', 'trusted_pc', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	location, _ := time.LoadLocation("Asia/Seoul")
+	item := scheduledomain.Item{
+		ID: "trip", Title: "가족여행", Visibility: scheduledomain.VisibilityFamily,
+		TimeKind: scheduledomain.TimeKindAllDay, StartDate: "2026-08-10", EndDate: "2026-08-12",
+		StartsAt:     time.Date(2026, 8, 10, 0, 0, 0, 0, location).UTC(),
+		EndsAt:       time.Date(2026, 8, 13, 0, 0, 0, 0, location).UTC(),
+		Participants: []string{"dad"},
+	}
+	if _, err := db.CreateAllDaySchedule(ctx, item, "pc", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	for day := 10; day <= 12; day++ {
+		from := time.Date(2026, 8, day, 0, 0, 0, 0, location)
+		items, err := db.SchedulesBetween(ctx, from.UTC(), from.AddDate(0, 0, 1).UTC(), "dad")
+		if err != nil || len(items) != 1 || items[0].TimeKind != scheduledomain.TimeKindAllDay {
+			t.Fatalf("day %d: items=%#v error=%v", day, items, err)
+		}
+	}
+}

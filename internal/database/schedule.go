@@ -84,6 +84,48 @@ func (d *Database) CreateSchedule(
 	return d.ScheduleByID(ctx, item.ID)
 }
 
+func (d *Database) CreateAllDaySchedule(
+	ctx context.Context,
+	item scheduledomain.Item,
+	deviceID string,
+	now time.Time,
+) (scheduledomain.Item, error) {
+	if err := scheduledomain.Validate(item); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("begin all-day schedule creation: %w", err)
+	}
+	defer tx.Rollback()
+	if err := validateParticipants(ctx, tx, item.Participants); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO schedules(
+		id, title, location_name, notes, visibility, time_kind, starts_at, ends_at,
+		created_by_device_id, updated_by_device_id, version, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, 'timed', ?, ?, ?, ?, 1, ?, ?)`, item.ID,
+		strings.TrimSpace(item.Title), nullable(item.LocationName), nullable(item.Notes), item.Visibility,
+		databaseTime(item.StartsAt), databaseTime(item.EndsAt), deviceID, deviceID,
+		databaseTime(now), databaseTime(now))
+	if err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("insert all-day schedule: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_all_day_dates(schedule_id, start_date, end_date)
+		VALUES (?, ?, ?)`, item.ID, item.StartDate, item.EndDate); err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("insert all-day dates: %w", err)
+	}
+	for _, participant := range unique(item.Participants) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_participants(schedule_id, family_member_id) VALUES (?, ?)`, item.ID, participant); err != nil {
+			return scheduledomain.Item{}, fmt.Errorf("insert all-day schedule participant: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return scheduledomain.Item{}, fmt.Errorf("commit all-day schedule creation: %w", err)
+	}
+	return d.ScheduleByID(ctx, item.ID)
+}
+
 func (d *Database) UpdateSchedule(
 	ctx context.Context,
 	item scheduledomain.Item,
@@ -269,8 +311,30 @@ func (d *Database) querySchedules(
 			return nil, err
 		}
 		items[index].Participants = participants
+		startDate, endDate, allDay, err := d.scheduleAllDayDates(ctx, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		if allDay {
+			items[index].TimeKind = scheduledomain.TimeKindAllDay
+			items[index].StartDate, items[index].EndDate = startDate, endDate
+		} else {
+			items[index].TimeKind = scheduledomain.TimeKindTimed
+		}
 	}
 	return items, nil
+}
+
+func (d *Database) scheduleAllDayDates(ctx context.Context, scheduleID string) (string, string, bool, error) {
+	var startDate, endDate string
+	err := d.db.QueryRowContext(ctx, `SELECT start_date, end_date FROM schedule_all_day_dates WHERE schedule_id = ?`, scheduleID).Scan(&startDate, &endDate)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("query all-day dates: %w", err)
+	}
+	return startDate, endDate, true, nil
 }
 
 func (d *Database) scheduleParticipants(ctx context.Context, scheduleID string) ([]string, error) {

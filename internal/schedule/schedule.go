@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	TimeKindTimed         = "timed"
+	TimeKindAllDay        = "all_day"
 	VisibilityFamily      = "family"
 	VisibilityTVSummary   = "tv_summary"
 	VisibilityParentsOnly = "parents_only"
@@ -34,6 +36,9 @@ type Item struct {
 	UpdatedAt         time.Time
 	OccurrenceKey     string
 	OccurrenceVersion int64
+	TimeKind          string
+	StartDate         string
+	EndDate           string
 }
 
 type View struct {
@@ -51,6 +56,9 @@ type View struct {
 	OccurrenceKey     string     `json:"occurrenceKey,omitempty"`
 	Recurring         bool       `json:"recurring,omitempty"`
 	OccurrenceVersion int64      `json:"occurrenceVersion,omitempty"`
+	TimeKind          string     `json:"timeKind,omitempty"`
+	StartDate         string     `json:"startDate,omitempty"`
+	EndDate           string     `json:"endDate,omitempty"`
 }
 
 type Audience string
@@ -65,7 +73,13 @@ func Validate(item Item) error {
 	if strings.TrimSpace(item.Title) == "" {
 		return ErrInvalidTitle
 	}
-	if !item.EndsAt.After(item.StartsAt) {
+	if item.TimeKind == TimeKindAllDay {
+		start, startErr := time.Parse("2006-01-02", item.StartDate)
+		end, endErr := time.Parse("2006-01-02", item.EndDate)
+		if startErr != nil || endErr != nil || end.Before(start) {
+			return ErrInvalidTimeRange
+		}
+	} else if !item.EndsAt.After(item.StartsAt) {
 		return ErrInvalidTimeRange
 	}
 	if len(uniqueStrings(item.Participants)) == 0 {
@@ -80,6 +94,9 @@ func Validate(item Item) error {
 }
 
 func Overlap(left, right Item) bool {
+	if left.TimeKind == TimeKindAllDay || right.TimeKind == TimeKindAllDay {
+		return false
+	}
 	if !left.StartsAt.Before(right.EndsAt) || !right.StartsAt.Before(left.EndsAt) {
 		return false
 	}
@@ -101,23 +118,27 @@ func Project(item Item, audience Audience) (View, bool) {
 	}
 	if item.Visibility == VisibilityTVSummary &&
 		(audience == AudienceShared || audience == AudienceTV) {
-		return View{
-			Title: "개인 일정", StartsAt: timePointer(item.StartsAt), EndsAt: timePointer(item.EndsAt),
-			Summary: true,
-		}, true
+		view := View{Title: "개인 일정", Summary: true, TimeKind: normalizedTimeKind(item.TimeKind)}
+		setViewTime(&view, item)
+		return view, true
 	}
-	return View{
+	view := View{
 		ID: item.ID, Title: item.Title, LocationName: item.LocationName,
-		Notes: item.Notes, Visibility: item.Visibility, StartsAt: timePointer(item.StartsAt),
-		EndsAt: timePointer(item.EndsAt), Participants: item.Participants,
+		Notes: item.Notes, Visibility: item.Visibility, Participants: item.Participants,
 		Version: item.Version, OccurrenceKey: item.OccurrenceKey,
 		Recurring: item.OccurrenceKey != "", OccurrenceVersion: item.OccurrenceVersion,
-	}, true
+		TimeKind: normalizedTimeKind(item.TimeKind),
+	}
+	setViewTime(&view, item)
+	return view, true
 }
 
 func ActiveStatus(items []Item, memberID string, at time.Time, audience Audience) (View, bool) {
 	var candidates []Item
 	for _, item := range items {
+		if item.TimeKind == TimeKindAllDay {
+			continue
+		}
 		if item.LocationName == "" || at.Before(item.StartsAt) || !at.Before(item.EndsAt) {
 			continue
 		}
@@ -157,6 +178,21 @@ func ActiveStatus(items []Item, memberID string, at time.Time, audience Audience
 
 func timePointer(value time.Time) *time.Time {
 	return &value
+}
+
+func normalizedTimeKind(value string) string {
+	if value == TimeKindAllDay {
+		return value
+	}
+	return TimeKindTimed
+}
+
+func setViewTime(view *View, item Item) {
+	if item.TimeKind == TimeKindAllDay {
+		view.StartDate, view.EndDate = item.StartDate, item.EndDate
+		return
+	}
+	view.StartsAt, view.EndsAt = timePointer(item.StartsAt), timePointer(item.EndsAt)
 }
 
 func uniqueStrings(values []string) []string {

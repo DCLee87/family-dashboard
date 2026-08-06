@@ -293,6 +293,14 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		 ON schedule_occurrence_exceptions(schedule_id, occurrence_key)`,
 		`INSERT INTO schema_migrations(version) VALUES (5)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_all_day_dates (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			start_date TEXT NOT NULL,
+			end_date TEXT NOT NULL,
+			CHECK (end_date >= start_date)
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (6)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

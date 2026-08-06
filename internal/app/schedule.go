@@ -28,6 +28,9 @@ type scheduleRequest struct {
 	OccurrenceVersion int64                    `json:"occurrenceVersion"`
 	ConfirmOverlap    bool                     `json:"confirmOverlap"`
 	Recurrence        *weeklyRecurrenceRequest `json:"recurrence,omitempty"`
+	TimeKind          string                   `json:"timeKind,omitempty"`
+	StartDate         string                   `json:"startDate,omitempty"`
+	EndDate           string                   `json:"endDate,omitempty"`
 }
 
 func (a *App) updateScheduleOccurrence(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +186,10 @@ func (a *App) createSchedule(w http.ResponseWriter, r *http.Request) {
 	item.ID = security.NewToken()
 	var rule *scheduledomain.WeeklyRule
 	if request.Recurrence != nil {
+		if item.TimeKind == scheduledomain.TimeKindAllDay {
+			writeAPIError(w, http.StatusBadRequest, "invalid_recurrence", "종일 반복 일정은 아직 지원하지 않습니다.")
+			return
+		}
 		parsed, err := buildWeeklyRule(item, *request.Recurrence)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_recurrence", "반복 요일과 종료일을 다시 확인해 주세요.")
@@ -192,7 +199,9 @@ func (a *App) createSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	var overlaps []scheduledomain.Item
 	var err error
-	if rule == nil {
+	if item.TimeKind == scheduledomain.TimeKindAllDay {
+		overlaps = nil
+	} else if rule == nil {
 		overlaps, err = a.db.OverlappingSchedules(r.Context(), item)
 	} else {
 		overlaps, err = a.overlappingWeeklySchedules(r.Context(), *rule)
@@ -209,7 +218,9 @@ func (a *App) createSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var created scheduledomain.Item
-	if rule == nil {
+	if item.TimeKind == scheduledomain.TimeKindAllDay {
+		created, err = a.db.CreateAllDaySchedule(r.Context(), item, device.ID, time.Now().UTC())
+	} else if rule == nil {
 		created, err = a.db.CreateSchedule(r.Context(), item, device.ID, time.Now().UTC())
 	} else {
 		created, err = a.db.CreateWeeklySchedule(r.Context(), *rule, device.ID, time.Now().UTC())
@@ -315,6 +326,10 @@ func (a *App) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	request, item, ok := decodeScheduleRequest(w, r)
 	if !ok {
+		return
+	}
+	if item.TimeKind == scheduledomain.TimeKindAllDay {
+		writeAPIError(w, http.StatusBadRequest, "all_day_update_unsupported", "종일 일정 수정은 아직 지원하지 않습니다.")
 		return
 	}
 	item.ID = r.PathValue("id")
@@ -455,17 +470,29 @@ func decodeScheduleRequest(
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "요청 본문은 하나만 허용됩니다.")
 		return request, scheduledomain.Item{}, false
 	}
-	startsAt, startErr := time.Parse(time.RFC3339, request.StartsAt)
-	endsAt, endErr := time.Parse(time.RFC3339, request.EndsAt)
-	if startErr != nil || endErr != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_time", "시작·종료 시각이 올바르지 않습니다.")
-		return request, scheduledomain.Item{}, false
-	}
 	item := scheduledomain.Item{
 		Title: strings.TrimSpace(request.Title), LocationName: strings.TrimSpace(request.LocationName),
 		Notes: strings.TrimSpace(request.Notes), Visibility: request.Visibility,
-		StartsAt: startsAt.UTC(), EndsAt: endsAt.UTC(),
 		Participants: request.Participants, Version: request.Version,
+	}
+	if request.TimeKind == scheduledomain.TimeKindAllDay {
+		location, _ := time.LoadLocation("Asia/Seoul")
+		startDate, startErr := time.ParseInLocation("2006-01-02", request.StartDate, location)
+		endDate, endErr := time.ParseInLocation("2006-01-02", request.EndDate, location)
+		if startErr != nil || endErr != nil || endDate.Before(startDate) {
+			writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "종일 일정 날짜를 다시 확인해 주세요.")
+			return request, scheduledomain.Item{}, false
+		}
+		item.TimeKind, item.StartDate, item.EndDate = scheduledomain.TimeKindAllDay, request.StartDate, request.EndDate
+		item.StartsAt, item.EndsAt = startDate.UTC(), endDate.AddDate(0, 0, 1).UTC()
+	} else {
+		startsAt, startErr := time.Parse(time.RFC3339, request.StartsAt)
+		endsAt, endErr := time.Parse(time.RFC3339, request.EndsAt)
+		if startErr != nil || endErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_time", "시작·종료 시각이 올바르지 않습니다.")
+			return request, scheduledomain.Item{}, false
+		}
+		item.TimeKind, item.StartsAt, item.EndsAt = scheduledomain.TimeKindTimed, startsAt.UTC(), endsAt.UTC()
 	}
 	if err := scheduledomain.Validate(item); err != nil {
 		code := "invalid_schedule"
