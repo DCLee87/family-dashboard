@@ -210,6 +210,21 @@ func TestScheduleAPICreatesWeeklyOccurrences(t *testing.T) {
 		}
 	}
 
+	overlap := httptest.NewRequest(http.MethodPost, "http://dashboard.test/api/v1/schedules", bytes.NewBufferString(`{
+		"title":"겹치는 병원","visibility":"family",
+		"startsAt":"2026-08-05T00:30:00Z","endsAt":"2026-08-05T00:45:00Z",
+		"participants":["daughter"]
+	}`))
+	overlap.Header.Set("Origin", "http://dashboard.test")
+	overlap.Header.Set("X-CSRF-Token", csrfToken)
+	overlap.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	overlap.AddCookie(&http.Cookie{Name: "family_dashboard_admin", Value: adminToken})
+	overlapResponse := httptest.NewRecorder()
+	handler.ServeHTTP(overlapResponse, overlap)
+	if overlapResponse.Code != http.StatusConflict {
+		t.Fatalf("one-off against recurring overlap: got %d; body=%s", overlapResponse.Code, overlapResponse.Body.String())
+	}
+
 	update := httptest.NewRequest(http.MethodPut,
 		"http://dashboard.test/api/v1/schedules/"+createdItem.ID+"/occurrences/2026-08-05T09:00",
 		bytes.NewBufferString(`{

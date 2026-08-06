@@ -198,7 +198,7 @@ func (a *App) createSchedule(w http.ResponseWriter, r *http.Request) {
 	if item.TimeKind == scheduledomain.TimeKindAllDay {
 		overlaps = nil
 	} else if rule == nil {
-		overlaps, err = a.db.OverlappingSchedules(r.Context(), item)
+		overlaps, err = a.overlappingOccurrence(r.Context(), item, "")
 	} else {
 		overlaps, err = a.overlappingWeeklySchedules(r.Context(), *rule)
 	}
@@ -335,7 +335,7 @@ func (a *App) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	var overlaps []scheduledomain.Item
 	var err error
 	if item.TimeKind != scheduledomain.TimeKindAllDay {
-		overlaps, err = a.db.OverlappingSchedules(r.Context(), item)
+		overlaps, err = a.overlappingOccurrence(r.Context(), item, "")
 	}
 	if err != nil {
 		a.scheduleInternalError(w, "schedule overlap check failed", err)
