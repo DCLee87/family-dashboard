@@ -186,10 +186,6 @@ func (a *App) createSchedule(w http.ResponseWriter, r *http.Request) {
 	item.ID = security.NewToken()
 	var rule *scheduledomain.WeeklyRule
 	if request.Recurrence != nil {
-		if item.TimeKind == scheduledomain.TimeKindAllDay {
-			writeAPIError(w, http.StatusBadRequest, "invalid_recurrence", "종일 반복 일정은 아직 지원하지 않습니다.")
-			return
-		}
 		parsed, err := buildWeeklyRule(item, *request.Recurrence)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_recurrence", "반복 요일과 종료일을 다시 확인해 주세요.")
@@ -218,12 +214,12 @@ func (a *App) createSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var created scheduledomain.Item
-	if item.TimeKind == scheduledomain.TimeKindAllDay {
-		created, err = a.db.CreateAllDaySchedule(r.Context(), item, device.ID, time.Now().UTC())
-	} else if rule == nil {
-		created, err = a.db.CreateSchedule(r.Context(), item, device.ID, time.Now().UTC())
-	} else {
+	if rule != nil {
 		created, err = a.db.CreateWeeklySchedule(r.Context(), *rule, device.ID, time.Now().UTC())
+	} else if item.TimeKind == scheduledomain.TimeKindAllDay {
+		created, err = a.db.CreateAllDaySchedule(r.Context(), item, device.ID, time.Now().UTC())
+	} else {
+		created, err = a.db.CreateSchedule(r.Context(), item, device.ID, time.Now().UTC())
 	}
 	if errors.Is(err, database.ErrInvalidParticipant) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_participant", "대상 가족을 다시 확인해 주세요.")
@@ -243,18 +239,21 @@ func buildWeeklyRule(item scheduledomain.Item, request weeklyRecurrenceRequest) 
 		return scheduledomain.WeeklyRule{}, scheduledomain.ErrInvalidWeeklyRule
 	}
 	localStart, localEnd := item.StartsAt.In(location), item.EndsAt.In(location)
-	if item.EndsAt.Sub(item.StartsAt) > 24*time.Hour {
+	if item.TimeKind != scheduledomain.TimeKindAllDay && item.EndsAt.Sub(item.StartsAt) > 24*time.Hour {
 		return scheduledomain.WeeklyRule{}, scheduledomain.ErrInvalidWeeklyRule
 	}
 	startDate := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, location)
 	endDate := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, location)
-	dayDifference := int(endDate.Sub(startDate) / (24 * time.Hour))
-	startMinute := localStart.Hour()*60 + localStart.Minute()
-	endMinute := localEnd.Hour()*60 + localEnd.Minute()
-	if dayDifference < 0 || dayDifference > 1 ||
-		(dayDifference == 0 && endMinute <= startMinute) ||
-		(dayDifference == 1 && endMinute > startMinute) {
-		return scheduledomain.WeeklyRule{}, scheduledomain.ErrInvalidWeeklyRule
+	startMinute, endMinute := 0, 0
+	if item.TimeKind != scheduledomain.TimeKindAllDay {
+		dayDifference := int(endDate.Sub(startDate) / (24 * time.Hour))
+		startMinute = localStart.Hour()*60 + localStart.Minute()
+		endMinute = localEnd.Hour()*60 + localEnd.Minute()
+		if dayDifference < 0 || dayDifference > 1 ||
+			(dayDifference == 0 && endMinute <= startMinute) ||
+			(dayDifference == 1 && endMinute > startMinute) {
+			return scheduledomain.WeeklyRule{}, scheduledomain.ErrInvalidWeeklyRule
+		}
 	}
 	days := make([]time.Weekday, 0, len(request.Weekdays))
 	for _, day := range request.Weekdays {

@@ -66,3 +66,25 @@ func TestExpandWeeklyIncludesPreviousDayCrossMidnightOccurrence(t *testing.T) {
 		t.Fatalf("cross-midnight occurrence missing: %#v", items)
 	}
 }
+
+func TestExpandWeeklyAllDayKeepsInclusiveMultiDayLength(t *testing.T) {
+	location := time.FixedZone("Asia/Seoul", 9*60*60)
+	endsOn := time.Date(2026, 8, 17, 0, 0, 0, 0, location)
+	rule := WeeklyRule{
+		Item: Item{ID: "trip", Title: "가족여행", Visibility: VisibilityFamily,
+			TimeKind: TimeKindAllDay, StartDate: "2026-08-10", EndDate: "2026-08-12",
+			Participants: []string{"dad"}},
+		StartsOn: time.Date(2026, 8, 10, 0, 0, 0, 0, location), EndsOn: &endsOn,
+		Weekdays: []time.Weekday{time.Monday}, StartMinute: 0, EndMinute: 0,
+	}
+	items, err := ExpandWeekly(rule,
+		time.Date(2026, 8, 11, 15, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 12, 15, 0, 0, 0, time.UTC), location, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].OccurrenceKey != "2026-08-10T00:00" ||
+		items[0].StartDate != "2026-08-10" || items[0].EndDate != "2026-08-12" {
+		t.Fatalf("unexpected recurring all-day occurrence: %#v", items)
+	}
+}

@@ -75,7 +75,20 @@ func ExpandWeekly(
 	for _, day := range uniqueWeekdays(rule.Weekdays) {
 		allowedDays[day] = struct{}{}
 	}
-	first := localDate(from.In(location), location).AddDate(0, 0, -1)
+	lookbackDays := 1
+	allDayLength := 0
+	if rule.Item.TimeKind == TimeKindAllDay {
+		startDate, startErr := time.Parse("2006-01-02", rule.Item.StartDate)
+		endDate, endErr := time.Parse("2006-01-02", rule.Item.EndDate)
+		if startErr != nil || endErr != nil || endDate.Before(startDate) {
+			return nil, ErrInvalidWeeklyRule
+		}
+		allDayLength = int(endDate.Sub(startDate)/(24*time.Hour)) + 1
+		if allDayLength-1 > lookbackDays {
+			lookbackDays = allDayLength - 1
+		}
+	}
+	first := localDate(from.In(location), location).AddDate(0, 0, -lookbackDays)
 	last := localDate(to.Add(-time.Nanosecond).In(location), location)
 	startsOn := localDate(rule.StartsOn.In(location), location)
 	endsOn := last
@@ -94,19 +107,29 @@ func ExpandWeekly(
 		if _, ok := allowedDays[date.Weekday()]; !ok {
 			continue
 		}
-		start, err := localDateTime(date, rule.StartMinute, location)
-		if err != nil {
-			return nil, err
-		}
-		endDate := date
-		if rule.EndMinute <= rule.StartMinute {
-			endDate = endDate.AddDate(0, 0, 1)
-		}
-		end, err := localDateTime(endDate, rule.EndMinute, location)
-		if err != nil {
-			return nil, err
-		}
 		item := rule.Item
+		var start, end time.Time
+		var err error
+		if item.TimeKind == TimeKindAllDay {
+			start = date
+			inclusiveEnd := date.AddDate(0, 0, allDayLength-1)
+			end = inclusiveEnd.AddDate(0, 0, 1)
+			item.StartDate = date.Format("2006-01-02")
+			item.EndDate = inclusiveEnd.Format("2006-01-02")
+		} else {
+			start, err = localDateTime(date, rule.StartMinute, location)
+			if err != nil {
+				return nil, err
+			}
+			endDate := date
+			if rule.EndMinute <= rule.StartMinute {
+				endDate = endDate.AddDate(0, 0, 1)
+			}
+			end, err = localDateTime(endDate, rule.EndMinute, location)
+			if err != nil {
+				return nil, err
+			}
+		}
 		item.StartsAt, item.EndsAt = start.UTC(), end.UTC()
 		if err := Validate(item); err != nil {
 			return nil, err

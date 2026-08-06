@@ -175,6 +175,11 @@ func (d *Database) CreateWeeklySchedule(
 	if err != nil {
 		return scheduledomain.Item{}, fmt.Errorf("insert recurring schedule: %w", err)
 	}
+	if item.TimeKind == scheduledomain.TimeKindAllDay {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_all_day_dates(schedule_id, start_date, end_date) VALUES (?, ?, ?)`, item.ID, item.StartDate, item.EndDate); err != nil {
+			return scheduledomain.Item{}, fmt.Errorf("insert recurring all-day dates: %w", err)
+		}
+	}
 	for _, participant := range unique(item.Participants) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_participants(schedule_id, family_member_id) VALUES (?, ?)`, item.ID, participant); err != nil {
 			return scheduledomain.Item{}, fmt.Errorf("insert recurring schedule participant: %w", err)

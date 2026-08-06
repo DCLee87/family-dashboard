@@ -271,7 +271,8 @@ func TestScheduleAPICreatesMultiDayAllDaySchedule(t *testing.T) {
 	handler := application.Handler()
 	create := httptest.NewRequest(http.MethodPost, "http://dashboard.test/api/v1/schedules", bytes.NewBufferString(`{
 		"title":"가족여행","visibility":"family","timeKind":"all_day",
-		"startDate":"2026-08-10","endDate":"2026-08-12","participants":["dad"]
+		"startDate":"2026-08-10","endDate":"2026-08-12","participants":["dad"],
+		"recurrence":{"kind":"weekly","weekdays":[1],"endsOn":"2026-08-17"}
 	}`))
 	create.Header.Set("Origin", "http://dashboard.test")
 	create.Header.Set("X-CSRF-Token", csrfToken)
@@ -292,6 +293,7 @@ func TestScheduleAPICreatesMultiDayAllDaySchedule(t *testing.T) {
 		Occurrences []struct {
 			TimeKind, StartDate, EndDate string
 			StartsAt                     *string `json:"startsAt"`
+			Recurring                    bool    `json:"recurring"`
 		} `json:"occurrences"`
 	}
 	if response.Code != http.StatusOK {
@@ -302,7 +304,7 @@ func TestScheduleAPICreatesMultiDayAllDaySchedule(t *testing.T) {
 	}
 	if len(result.Occurrences) != 1 || result.Occurrences[0].TimeKind != "all_day" ||
 		result.Occurrences[0].StartDate != "2026-08-10" || result.Occurrences[0].EndDate != "2026-08-12" ||
-		result.Occurrences[0].StartsAt != nil {
+		result.Occurrences[0].StartsAt != nil || !result.Occurrences[0].Recurring {
 		t.Fatalf("unexpected all-day response: %#v", result)
 	}
 }

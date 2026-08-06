@@ -499,7 +499,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                 {item.locationName && <span>{item.locationName}</span>}
                 {item.overlap && <span className="overlap-badge">일정 겹침</span>}
               </div>
-              {auth.permissions.admin && item.id && (
+              {auth.permissions.admin && item.id && !(item.recurring && item.timeKind === "all_day") && (
                 <button type="button" className="secondary" onClick={() => editSchedule(item)}>
                   {item.recurring ? "이번 회차 수정" : "수정"}
                 </button>
@@ -551,7 +551,7 @@ function ScheduleEditor({
       </label>
       {!form.id && (
         <label className="recurrence-toggle">
-          <input type="checkbox" checked={form.allDay} onChange={(event) => onChange({ ...form, allDay: event.target.checked, weeklyRepeat: false })} />
+          <input type="checkbox" checked={form.allDay} onChange={(event) => onChange({ ...form, allDay: event.target.checked })} />
           <span>종일 일정</span>
         </label>
       )}
@@ -576,7 +576,7 @@ function ScheduleEditor({
           <input type="datetime-local" value={form.endsAt} onChange={(event) => onChange({ ...form, endsAt: event.target.value })} />
         </label>
       </div>}
-      {!form.id && !form.allDay && (
+      {!form.id && (
         <fieldset>
           <legend>반복</legend>
           <label className="recurrence-toggle">
@@ -611,7 +611,7 @@ function ScheduleEditor({
                 <input
                   type="date"
                   value={form.recurrenceEndsOn}
-                  min={form.startsAt.slice(0, 10)}
+                  min={form.allDay ? form.startDate : form.startsAt.slice(0, 10)}
                   onChange={(event) => onChange({ ...form, recurrenceEndsOn: event.target.value })}
                 />
               </label>
