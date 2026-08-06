@@ -106,7 +106,7 @@ export default function App() {
   return (
     <main>
       <header>
-        <p className="eyebrow">C1 · FAMILY SCHEDULE</p>
+        <p className="eyebrow">{(runtime?.version || "FAMILY").toUpperCase()} · FAMILY SCHEDULE</p>
         <h1>우리 가족 대시보드</h1>
         <p className="subtitle">등록된 가족 기기에서 오늘의 일정과 NAS 서비스 상태를 함께 확인합니다.</p>
       </header>
