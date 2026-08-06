@@ -687,6 +687,10 @@ function AdminControl({
           <p className="label">기기 인증</p>
           <strong>등록되지 않은 브라우저</strong>
           <p>이 기기에서는 가족 정보와 관리자 기능을 사용할 수 없습니다.</p>
+          <div className="enrollment-links" aria-label="기기 등록">
+            <a className="enrollment-link primary" href="/enroll">부모 휴대폰 등록</a>
+            <a className="enrollment-link secondary" href="/enroll/tablet">공용 태블릿 등록</a>
+          </div>
         </div>
       </section>
     );
