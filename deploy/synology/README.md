@@ -81,6 +81,27 @@ sudo sh c1-rollback.sh /volume1/docker/family-dashboard/backups/pre-c1-<UTC>
 데이터를 보존하지 않는다. 상태 확인과 화면 문제만으로 즉시 롤백하지 말고
 먼저 로그와 `--check-db` 결과를 확인한다.
 
+## C2 반복 일정 시험 배포
+
+C2는 schema version 5와 매주 반복 일정 입력을 추가한다. 패키지는 다음과
+같이 만들며 기본 출력 경로는 `runtime/synology-package-c2`이다.
+
+```sh
+sh deploy/synology/build-c2-package.sh
+```
+
+NAS의 `family-dashboard-c2` 디렉터리로 전송한 뒤 체크섬을 확인하고, 명시적인
+시험 배포 승인 후 실행한다.
+
+```sh
+shasum -a 256 -c family-dashboard-c2-amd64.tar.sha256
+sudo sh c2-deploy.sh
+```
+
+스크립트는 기존 설정과 SQLite 파일을 `backups/pre-c2-<UTC 시각>`에 보존한
+뒤 DB 무결성 검사를 통과한 경우에만 C2 서비스를 시작한다. 되돌리기는 배포가
+출력한 정확한 백업 경로를 `c2-rollback.sh`에 전달한다.
+
 ## 로컬 전용 기기의 LAN HTTPS
 
 E2 실기기 환경에서는 Synology Reverse Proxy가 LAN HTTPS 요청을
