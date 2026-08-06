@@ -17,16 +17,139 @@ import (
 const maxScheduleRange = 62 * 24 * time.Hour
 
 type scheduleRequest struct {
-	Title          string                   `json:"title"`
-	LocationName   string                   `json:"locationName"`
-	Notes          string                   `json:"notes"`
-	Visibility     string                   `json:"visibility"`
-	StartsAt       string                   `json:"startsAt"`
-	EndsAt         string                   `json:"endsAt"`
-	Participants   []string                 `json:"participants"`
-	Version        int64                    `json:"version"`
-	ConfirmOverlap bool                     `json:"confirmOverlap"`
-	Recurrence     *weeklyRecurrenceRequest `json:"recurrence,omitempty"`
+	Title             string                   `json:"title"`
+	LocationName      string                   `json:"locationName"`
+	Notes             string                   `json:"notes"`
+	Visibility        string                   `json:"visibility"`
+	StartsAt          string                   `json:"startsAt"`
+	EndsAt            string                   `json:"endsAt"`
+	Participants      []string                 `json:"participants"`
+	Version           int64                    `json:"version"`
+	OccurrenceVersion int64                    `json:"occurrenceVersion"`
+	ConfirmOverlap    bool                     `json:"confirmOverlap"`
+	Recurrence        *weeklyRecurrenceRequest `json:"recurrence,omitempty"`
+}
+
+func (a *App) updateScheduleOccurrence(w http.ResponseWriter, r *http.Request) {
+	_, ok := a.requireContentAdmin(w, r)
+	if !ok {
+		return
+	}
+	request, item, ok := decodeScheduleRequest(w, r)
+	if !ok {
+		return
+	}
+	original, err := a.recurringOccurrence(r.Context(), r.PathValue("id"), r.PathValue("key"))
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "occurrence_not_found", "반복 일정 회차를 찾을 수 없습니다.")
+		return
+	}
+	item.ID, item.Participants = original.ID, original.Participants
+	overlaps, err := a.overlappingOccurrence(r.Context(), item, original.OccurrenceKey)
+	if err != nil {
+		a.scheduleInternalError(w, "occurrence overlap check failed", err)
+		return
+	}
+	if len(overlaps) > 0 && !request.ConfirmOverlap {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"code": "overlap_warning", "message": "겹치는 일정이 있습니다.",
+			"overlaps": projectSchedules(overlaps, scheduledomain.AudienceParent),
+		})
+		return
+	}
+	version, err := a.db.SaveOccurrenceException(r.Context(), original.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: original.OccurrenceKey, Override: &item,
+	}, request.OccurrenceVersion, time.Now().UTC())
+	if errors.Is(err, database.ErrOccurrenceConflict) {
+		writeAPIError(w, http.StatusConflict, "occurrence_version_conflict", "다른 기기에서 이 회차가 변경되었습니다.")
+		return
+	}
+	if err != nil {
+		a.scheduleInternalError(w, "occurrence update failed", err)
+		return
+	}
+	item.OccurrenceKey, item.OccurrenceVersion = original.OccurrenceKey, version
+	view, _ := scheduledomain.Project(item, scheduledomain.AudienceParent)
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (a *App) cancelScheduleOccurrence(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdmin(w, r); !ok {
+		return
+	}
+	var request struct {
+		OccurrenceVersion int64 `json:"occurrenceVersion"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "요청 형식이 올바르지 않습니다.")
+		return
+	}
+	original, err := a.recurringOccurrence(r.Context(), r.PathValue("id"), r.PathValue("key"))
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "occurrence_not_found", "반복 일정 회차를 찾을 수 없습니다.")
+		return
+	}
+	_, err = a.db.SaveOccurrenceException(r.Context(), original.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: original.OccurrenceKey, Cancelled: true,
+	}, request.OccurrenceVersion, time.Now().UTC())
+	if errors.Is(err, database.ErrOccurrenceConflict) {
+		writeAPIError(w, http.StatusConflict, "occurrence_version_conflict", "다른 기기에서 이 회차가 변경되었습니다.")
+		return
+	}
+	if err != nil {
+		a.scheduleInternalError(w, "occurrence cancellation failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) recurringOccurrence(ctx context.Context, scheduleID, key string) (scheduledomain.Item, error) {
+	location, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return scheduledomain.Item{}, err
+	}
+	originalStart, err := time.ParseInLocation("2006-01-02T15:04", key, location)
+	if err != nil {
+		return scheduledomain.Item{}, scheduledomain.ErrInvalidOccurrence
+	}
+	rules, err := a.db.WeeklyRules(ctx)
+	if err != nil {
+		return scheduledomain.Item{}, err
+	}
+	for _, rule := range rules {
+		if rule.Item.ID != scheduleID {
+			continue
+		}
+		occurrences, err := scheduledomain.ExpandWeekly(rule, originalStart.UTC(), originalStart.Add(24*time.Hour).UTC(), location, nil)
+		if err != nil {
+			return scheduledomain.Item{}, err
+		}
+		for _, occurrence := range occurrences {
+			if occurrence.OccurrenceKey == key {
+				return occurrence.Item, nil
+			}
+		}
+	}
+	return scheduledomain.Item{}, scheduledomain.ErrInvalidOccurrence
+}
+
+func (a *App) overlappingOccurrence(ctx context.Context, candidate scheduledomain.Item, originalKey string) ([]scheduledomain.Item, error) {
+	items, err := a.db.SchedulesBetween(ctx, candidate.StartsAt, candidate.EndsAt, "")
+	if err != nil {
+		return nil, err
+	}
+	var overlaps []scheduledomain.Item
+	for _, item := range items {
+		if item.ID == candidate.ID && item.OccurrenceKey == originalKey {
+			continue
+		}
+		if scheduledomain.Overlap(candidate, item) {
+			overlaps = append(overlaps, item)
+		}
+	}
+	return overlaps, nil
 }
 
 type weeklyRecurrenceRequest struct {

@@ -88,6 +88,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/schedules", a.createSchedule)
 	mux.HandleFunc("PUT /api/v1/schedules/{id}", a.updateSchedule)
 	mux.HandleFunc("GET /api/v1/schedules/{id}", a.getSchedule)
+	mux.HandleFunc("PUT /api/v1/schedules/{id}/occurrences/{key}", a.updateScheduleOccurrence)
+	mux.HandleFunc("POST /api/v1/schedules/{id}/occurrences/{key}/cancel", a.cancelScheduleOccurrence)
 	mux.HandleFunc("GET /api/v1/schedule-occurrences", a.listScheduleOccurrences)
 	mux.HandleFunc("GET /api/v1/family-status", a.familyStatus)
 

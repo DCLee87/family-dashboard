@@ -176,6 +176,12 @@ func TestScheduleAPICreatesWeeklyOccurrences(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create weekly: got %d; body=%s", created.Code, created.Body.String())
 	}
+	var createdItem struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(created.Body).Decode(&createdItem); err != nil {
+		t.Fatal(err)
+	}
 
 	list := httptest.NewRequest(http.MethodGet,
 		"http://dashboard.test/api/v1/schedule-occurrences?from=2026-08-02T15:00:00Z&to=2026-08-11T15:00:00Z&member=daughter", nil)
@@ -202,6 +208,60 @@ func TestScheduleAPICreatesWeeklyOccurrences(t *testing.T) {
 		if occurrence.Title != "등교" || !occurrence.Recurring || occurrence.OccurrenceKey == "" {
 			t.Fatalf("unexpected recurring occurrence: %#v", occurrence)
 		}
+	}
+
+	update := httptest.NewRequest(http.MethodPut,
+		"http://dashboard.test/api/v1/schedules/"+createdItem.ID+"/occurrences/2026-08-05T09:00",
+		bytes.NewBufferString(`{
+			"title":"특별 등교","visibility":"family",
+			"startsAt":"2026-08-05T02:00:00Z","endsAt":"2026-08-05T03:00:00Z",
+			"participants":["daughter"],"occurrenceVersion":0
+		}`))
+	update.Header.Set("Origin", "http://dashboard.test")
+	update.Header.Set("X-CSRF-Token", csrfToken)
+	update.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	update.AddCookie(&http.Cookie{Name: "family_dashboard_admin", Value: adminToken})
+	updated := httptest.NewRecorder()
+	handler.ServeHTTP(updated, update)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update occurrence: got %d; body=%s", updated.Code, updated.Body.String())
+	}
+
+	cancel := httptest.NewRequest(http.MethodPost,
+		"http://dashboard.test/api/v1/schedules/"+createdItem.ID+"/occurrences/2026-08-10T09:00/cancel",
+		bytes.NewBufferString(`{"occurrenceVersion":0}`))
+	cancel.Header.Set("Origin", "http://dashboard.test")
+	cancel.Header.Set("X-CSRF-Token", csrfToken)
+	cancel.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	cancel.AddCookie(&http.Cookie{Name: "family_dashboard_admin", Value: adminToken})
+	cancelled := httptest.NewRecorder()
+	handler.ServeHTTP(cancelled, cancel)
+	if cancelled.Code != http.StatusNoContent {
+		t.Fatalf("cancel occurrence: got %d; body=%s", cancelled.Code, cancelled.Body.String())
+	}
+
+	finalList := httptest.NewRequest(http.MethodGet,
+		"http://dashboard.test/api/v1/schedule-occurrences?from=2026-08-02T15:00:00Z&to=2026-08-11T15:00:00Z&member=daughter", nil)
+	finalList.AddCookie(&http.Cookie{Name: "family_dashboard_device", Value: deviceToken})
+	finalResponse := httptest.NewRecorder()
+	handler.ServeHTTP(finalResponse, finalList)
+	if finalResponse.Code != http.StatusOK {
+		t.Fatalf("final list: got %d; body=%s", finalResponse.Code, finalResponse.Body.String())
+	}
+	var finalResult struct {
+		Occurrences []struct {
+			Title             string `json:"title"`
+			OccurrenceKey     string `json:"occurrenceKey"`
+			OccurrenceVersion int64  `json:"occurrenceVersion"`
+		} `json:"occurrences"`
+	}
+	if err := json.NewDecoder(finalResponse.Body).Decode(&finalResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(finalResult.Occurrences) != 2 || finalResult.Occurrences[1].Title != "특별 등교" ||
+		finalResult.Occurrences[1].OccurrenceKey != "2026-08-05T09:00" ||
+		finalResult.Occurrences[1].OccurrenceVersion != 1 {
+		t.Fatalf("unexpected final occurrences: %#v", finalResult)
 	}
 }
 

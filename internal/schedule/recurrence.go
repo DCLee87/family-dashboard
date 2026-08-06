@@ -28,6 +28,7 @@ type OccurrenceException struct {
 	OccurrenceKey string
 	Cancelled     bool
 	Override      *Item
+	Version       int64
 }
 
 type Occurrence struct {
@@ -123,6 +124,9 @@ func ExpandWeekly(
 			}
 		}
 		item.OccurrenceKey = key
+		if exception, ok := exceptionByKey[key]; ok {
+			item.OccurrenceVersion = exception.Version
+		}
 		if item.EndsAt.After(from) && item.StartsAt.Before(to) {
 			result = append(result, Occurrence{Item: item, OccurrenceKey: key, OriginalStart: start.UTC()})
 		}

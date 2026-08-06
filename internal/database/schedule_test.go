@@ -15,7 +15,7 @@ func TestScheduleRepositoryCreateListOverlapAndUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.db.Exec(`
 		INSERT INTO devices(id, name, device_type, local_only)
 		VALUES
@@ -114,11 +114,12 @@ func TestScheduleRepositoryRejectsUnknownParticipantAtomically(t *testing.T) {
 
 func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
 	ctx := context.Background()
-	db, err := Open(t.TempDir(), false)
+	dataDir := t.TempDir()
+	db, err := Open(dataDir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.db.Exec(`INSERT INTO devices(id, name, device_type, local_only) VALUES ('pc', 'Home PC', 'trusted_pc', 0)`); err != nil {
 		t.Fatal(err)
 	}
@@ -155,5 +156,43 @@ func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
 		if occurrence.ID != item.ID || occurrence.OccurrenceKey == "" {
 			t.Fatalf("unexpected occurrence: %#v", occurrence)
 		}
+	}
+	override := item
+	override.Title = "특별 등교"
+	override.StartsAt = time.Date(2026, 8, 5, 11, 0, 0, 0, location).UTC()
+	override.EndsAt = time.Date(2026, 8, 5, 12, 0, 0, 0, location).UTC()
+	version, err := db.SaveOccurrenceException(ctx, item.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: "2026-08-05T09:00", Override: &override,
+	}, 0, time.Now().UTC())
+	if err != nil || version != 1 {
+		t.Fatalf("save override: version=%d error=%v", version, err)
+	}
+	if _, err := db.SaveOccurrenceException(ctx, item.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: "2026-08-05T09:00", Override: &override,
+	}, 0, time.Now().UTC()); !errors.Is(err, ErrOccurrenceConflict) {
+		t.Fatalf("stale occurrence update: got %v, want %v", err, ErrOccurrenceConflict)
+	}
+	if _, err := db.SaveOccurrenceException(ctx, item.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: "2026-08-10T09:00", Cancelled: true,
+	}, 0, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(dataDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = db.SchedulesBetween(ctx, startsOn.UTC(), endsOn.AddDate(0, 0, 1).UTC(), "daughter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d final occurrences after exceptions, want 2: %#v", len(items), items)
+	}
+	if items[1].Title != "특별 등교" || items[1].OccurrenceKey != "2026-08-05T09:00" ||
+		items[1].OccurrenceVersion != 1 || items[1].StartsAt.Hour() != 2 {
+		t.Fatalf("override was not persisted with stable key: %#v", items[1])
 	}
 }

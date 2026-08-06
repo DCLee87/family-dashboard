@@ -170,6 +170,7 @@ type ScheduleOccurrence = {
   overlap?: boolean;
   occurrenceKey?: string;
   recurring?: boolean;
+  occurrenceVersion?: number;
 };
 
 type FamilyStatusItem = {
@@ -190,6 +191,8 @@ type ScheduleForm = {
   weeklyRepeat: boolean;
   weekdays: number[];
   recurrenceEndsOn: string;
+  occurrenceKey: string;
+  occurrenceVersion: number;
 };
 
 function emptyScheduleForm(): ScheduleForm {
@@ -201,6 +204,7 @@ function emptyScheduleForm(): ScheduleForm {
     startsAt: toLocalInput(start), endsAt: toLocalInput(end),
     participants: [], version: 0, weeklyRepeat: false,
     weekdays: [start.getDay()], recurrenceEndsOn: "",
+    occurrenceKey: "", occurrenceVersion: 0,
   };
 }
 
@@ -279,6 +283,8 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       weeklyRepeat: false,
       weekdays: [new Date(item.startsAt).getDay()],
       recurrenceEndsOn: "",
+      occurrenceKey: item.occurrenceKey ?? "",
+      occurrenceVersion: item.occurrenceVersion ?? 0,
     });
     setShowForm(true);
   }
@@ -291,7 +297,11 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       if (form.participants.length === 0) throw new Error("대상 가족을 한 명 이상 선택하세요.");
       if (!form.id && form.weeklyRepeat && form.weekdays.length === 0) throw new Error("반복 요일을 한 개 이상 선택하세요.");
       const method = form.id ? "PUT" : "POST";
-      const target = form.id ? `/api/v1/schedules/${encodeURIComponent(form.id)}` : "/api/v1/schedules";
+      const target = form.id
+        ? form.occurrenceKey
+          ? `/api/v1/schedules/${encodeURIComponent(form.id)}/occurrences/${encodeURIComponent(form.occurrenceKey)}`
+          : `/api/v1/schedules/${encodeURIComponent(form.id)}`
+        : "/api/v1/schedules";
       const response = await fetch(target, {
         method,
         headers: {
@@ -306,6 +316,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
           endsAt: new Date(form.endsAt).toISOString(),
           participants: form.participants,
           version: form.version,
+          occurrenceVersion: form.occurrenceVersion,
           confirmOverlap,
           recurrence: !form.id && form.weeklyRepeat ? {
             kind: "weekly",
@@ -327,6 +338,37 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       await refreshSchedules();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "일정을 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelOccurrence() {
+    if (!form.id || !form.occurrenceKey) return;
+    if (!window.confirm("이 반복 일정의 이번 회차만 취소할까요?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/v1/schedules/${encodeURIComponent(form.id)}/occurrences/${encodeURIComponent(form.occurrenceKey)}/cancel`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+          },
+          body: JSON.stringify({ occurrenceVersion: form.occurrenceVersion }),
+        },
+      );
+      if (!response.ok) {
+        const result = await response.json() as { message?: string };
+        throw new Error(result.message ?? "이번 회차를 취소하지 못했습니다.");
+      }
+      setForm(emptyScheduleForm());
+      setShowForm(false);
+      await refreshSchedules();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "이번 회차를 취소하지 못했습니다.");
     } finally {
       setBusy(false);
     }
@@ -411,7 +453,9 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       <div className="schedule-list">
         {filteredOccurrences.map((item, index) => {
           const key = item.occurrenceKey ? `${item.id}-${item.occurrenceKey}` : item.id ?? `${item.startsAt}-${index}`;
-          if (item.id && item.id === form.id && auth.permissions.admin) {
+          if (item.id && item.id === form.id &&
+            (form.occurrenceKey ? item.occurrenceKey === form.occurrenceKey : !item.occurrenceKey) &&
+            auth.permissions.admin) {
             return (
               <article key={key} className="schedule-editor-row">
                 <ScheduleEditor
@@ -421,6 +465,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                   onChange={setForm}
                   onToggleParticipant={toggleParticipant}
                   onSave={() => void save()}
+                  onCancelOccurrence={form.occurrenceKey ? () => void cancelOccurrence() : undefined}
                   onCancel={() => {
                     setForm(emptyScheduleForm());
                     setShowForm(false);
@@ -438,8 +483,10 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                 {item.locationName && <span>{item.locationName}</span>}
                 {item.overlap && <span className="overlap-badge">일정 겹침</span>}
               </div>
-              {auth.permissions.admin && item.id && !item.recurring && (
-                <button type="button" className="secondary" onClick={() => editSchedule(item)}>수정</button>
+              {auth.permissions.admin && item.id && (
+                <button type="button" className="secondary" onClick={() => editSchedule(item)}>
+                  {item.recurring ? "이번 회차 수정" : "수정"}
+                </button>
               )}
             </article>
           );
@@ -462,6 +509,7 @@ function ScheduleEditor({
   onToggleParticipant,
   onSave,
   onCancel,
+  onCancelOccurrence,
 }: {
   form: ScheduleForm;
   members: FamilyMember[];
@@ -470,6 +518,7 @@ function ScheduleEditor({
   onToggleParticipant: (id: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  onCancelOccurrence?: () => void;
 }) {
   return (
     <form className="schedule-form" onSubmit={(event) => {
@@ -561,7 +610,10 @@ function ScheduleEditor({
         </div>
       </fieldset>
       <div className="button-row">
-        <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.id ? "일정 수정" : "일정 저장"}</button>
+        <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.occurrenceKey ? "이번 회차 저장" : form.id ? "일정 수정" : "일정 저장"}</button>
+        {onCancelOccurrence && (
+          <button type="button" className="danger" disabled={busy} onClick={onCancelOccurrence}>이번 회차 취소</button>
+        )}
         <button type="button" className="secondary" disabled={busy} onClick={onCancel}>취소</button>
       </div>
     </form>

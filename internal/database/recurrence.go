@@ -3,12 +3,139 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	scheduledomain "github.com/DCLee87/family-dashboard/internal/schedule"
 )
+
+var ErrOccurrenceConflict = errors.New("occurrence version conflict")
+
+func (d *Database) OccurrenceExceptions(ctx context.Context, scheduleID string) ([]scheduledomain.OccurrenceException, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT occurrence_key, status, override_title,
+		override_location_name, override_notes, override_visibility, override_starts_at,
+		override_ends_at, version
+		FROM schedule_occurrence_exceptions WHERE schedule_id = ? ORDER BY occurrence_key`, scheduleID)
+	if err != nil {
+		return nil, fmt.Errorf("list occurrence exceptions: %w", err)
+	}
+	type storedException struct {
+		key, status                                          string
+		title, location, notes, visibility, startsAt, endsAt sql.NullString
+		version                                              int64
+	}
+	var stored []storedException
+	for rows.Next() {
+		var value storedException
+		if err := rows.Scan(&value.key, &value.status, &value.title, &value.location,
+			&value.notes, &value.visibility, &value.startsAt, &value.endsAt, &value.version); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan occurrence exception: %w", err)
+		}
+		stored = append(stored, value)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	base, err := d.ScheduleByID(ctx, scheduleID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]scheduledomain.OccurrenceException, 0, len(stored))
+	for _, value := range stored {
+		exception := scheduledomain.OccurrenceException{
+			OccurrenceKey: value.key, Cancelled: value.status == "cancelled", Version: value.version,
+		}
+		if !exception.Cancelled {
+			override := base
+			override.Title, override.LocationName, override.Notes, override.Visibility =
+				value.title.String, value.location.String, value.notes.String, value.visibility.String
+			override.StartsAt, err = parseDatabaseTime(value.startsAt.String)
+			if err != nil {
+				return nil, err
+			}
+			override.EndsAt, err = parseDatabaseTime(value.endsAt.String)
+			if err != nil {
+				return nil, err
+			}
+			exception.Override = &override
+		}
+		result = append(result, exception)
+	}
+	return result, nil
+}
+
+func (d *Database) SaveOccurrenceException(
+	ctx context.Context,
+	scheduleID string,
+	exception scheduledomain.OccurrenceException,
+	expectedVersion int64,
+	now time.Time,
+) (int64, error) {
+	if exception.OccurrenceKey == "" || (exception.Cancelled && exception.Override != nil) ||
+		(!exception.Cancelled && exception.Override == nil) {
+		return 0, scheduledomain.ErrInvalidOccurrence
+	}
+	if exception.Override != nil {
+		if err := scheduledomain.Validate(*exception.Override); err != nil {
+			return 0, err
+		}
+	}
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin occurrence exception save: %w", err)
+	}
+	defer tx.Rollback()
+	var currentVersion int64
+	err = tx.QueryRowContext(ctx, `SELECT version FROM schedule_occurrence_exceptions
+		WHERE schedule_id = ? AND occurrence_key = ?`, scheduleID, exception.OccurrenceKey).Scan(&currentVersion)
+	switch {
+	case errors.Is(err, sql.ErrNoRows) && expectedVersion != 0:
+		return 0, ErrOccurrenceConflict
+	case err == nil && currentVersion != expectedVersion:
+		return 0, ErrOccurrenceConflict
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return 0, fmt.Errorf("read occurrence exception version: %w", err)
+	}
+	newVersion := currentVersion + 1
+	status := "overridden"
+	var title, location, notes, visibility, startsAt, endsAt any
+	if exception.Cancelled {
+		status = "cancelled"
+	} else {
+		override := exception.Override
+		title, location, notes, visibility = override.Title, nullable(override.LocationName), nullable(override.Notes), override.Visibility
+		startsAt, endsAt = databaseTime(override.StartsAt), databaseTime(override.EndsAt)
+	}
+	if currentVersion == 0 {
+		_, err = tx.ExecContext(ctx, `INSERT INTO schedule_occurrence_exceptions(
+			schedule_id, occurrence_key, status, override_title, override_location_name,
+			override_notes, override_visibility, override_starts_at, override_ends_at,
+			version, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, scheduleID, exception.OccurrenceKey,
+			status, title, location, notes, visibility, startsAt, endsAt, databaseTime(now), databaseTime(now))
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE schedule_occurrence_exceptions SET
+			status = ?, override_title = ?, override_location_name = ?, override_notes = ?,
+			override_visibility = ?, override_starts_at = ?, override_ends_at = ?,
+			version = version + 1, updated_at = ?
+			WHERE schedule_id = ? AND occurrence_key = ? AND version = ?`, status, title, location,
+			notes, visibility, startsAt, endsAt, databaseTime(now), scheduleID, exception.OccurrenceKey, expectedVersion)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("save occurrence exception: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit occurrence exception: %w", err)
+	}
+	return newVersion, nil
+}
 
 func (d *Database) CreateWeeklySchedule(
 	ctx context.Context,
@@ -101,7 +228,11 @@ func (d *Database) RecurringOccurrencesBetween(ctx context.Context, from, to tim
 	}
 	var items []scheduledomain.Item
 	for _, rule := range rules {
-		occurrences, err := scheduledomain.ExpandWeekly(rule, from, to, location, nil)
+		exceptions, err := d.OccurrenceExceptions(ctx, rule.Item.ID)
+		if err != nil {
+			return nil, err
+		}
+		occurrences, err := scheduledomain.ExpandWeekly(rule, from, to, location, exceptions)
 		if err != nil {
 			return nil, err
 		}
