@@ -62,6 +62,12 @@ func New(config Config, logger *slog.Logger) (*App, error) {
 	} else if purged > 0 {
 		logger.Info("expired trashed schedules purged", "count", purged)
 	}
+	if purged, err := db.PurgeExpiredTrashedTasks(context.Background(), time.Now().UTC()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("purge expired task trash: %w", err)
+	} else if purged > 0 {
+		logger.Info("expired trashed tasks purged", "count", purged)
+	}
 	application := &App{
 		config: config, db: db, logger: logger, pushClient: http.DefaultClient,
 	}
@@ -110,9 +116,13 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/family-status", a.familyStatus)
 	mux.HandleFunc("POST /api/v1/tasks", a.createTask)
 	mux.HandleFunc("PUT /api/v1/tasks/{id}", a.updateTask)
+	mux.HandleFunc("DELETE /api/v1/tasks/{id}", a.deleteTask)
 	mux.HandleFunc("GET /api/v1/task-occurrences", a.listTaskOccurrences)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/occurrences/{key}/complete", a.completeTaskOccurrence)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/occurrences/{key}/reopen", a.completeTaskOccurrence)
+	mux.HandleFunc("GET /api/admin/task-trash", a.listTaskTrash)
+	mux.HandleFunc("POST /api/admin/task-trash/{id}/restore", a.restoreTask)
+	mux.HandleFunc("DELETE /api/admin/task-trash/{id}", a.permanentlyDeleteTask)
 	mux.HandleFunc("GET /api/admin/schedule-trash", a.listScheduleTrash)
 	mux.HandleFunc("POST /api/admin/schedule-trash/{id}/restore", a.restoreSchedule)
 	mux.HandleFunc("DELETE /api/admin/schedule-trash/{id}", a.permanentlyDeleteSchedule)

@@ -16,6 +16,11 @@ var (
 	ErrTaskConflict = errors.New("task version conflict")
 )
 
+type TrashedTask struct {
+	Item      taskdomain.Item
+	DeletedAt time.Time
+}
+
 func (d *Database) CreateTask(ctx context.Context, item taskdomain.Item, deviceID string, now time.Time) (taskdomain.Item, error) {
 	if err := taskdomain.Validate(item); err != nil {
 		return taskdomain.Item{}, err
@@ -260,4 +265,94 @@ func nullableInt(valid bool, value int) any {
 		return nil
 	}
 	return value
+}
+
+func (d *Database) TrashTask(ctx context.Context, id string, version int64, deviceID string, now time.Time) error {
+	result, err := d.db.ExecContext(ctx, `UPDATE tasks SET deleted_at = ?, updated_at = ?,
+		updated_by_device_id = ?, version = version + 1
+		WHERE id = ? AND version = ? AND deleted_at IS NULL`, databaseTime(now), databaseTime(now), deviceID, id, version)
+	if err != nil {
+		return err
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 1 {
+		return nil
+	}
+	var exists int
+	if err := d.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE id = ? AND deleted_at IS NULL`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return ErrTaskNotFound
+	}
+	return ErrTaskConflict
+}
+
+func (d *Database) TrashedTasks(ctx context.Context) ([]TrashedTask, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT id, deleted_at FROM tasks WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	type row struct{ id, deletedAt string }
+	var stored []row
+	for rows.Next() {
+		var value row
+		if err := rows.Scan(&value.id, &value.deletedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		stored = append(stored, value)
+	}
+	rows.Close()
+	result := make([]TrashedTask, 0, len(stored))
+	for _, value := range stored {
+		items, err := d.queryTasks(ctx, `WHERE t.id = ? AND t.deleted_at IS NOT NULL`, value.id)
+		if err != nil || len(items) != 1 {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		deletedAt, err := parseDatabaseTime(value.deletedAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, TrashedTask{Item: items[0], DeletedAt: deletedAt})
+	}
+	return result, nil
+}
+
+func (d *Database) RestoreTask(ctx context.Context, id string, version int64, deviceID string, now time.Time) (taskdomain.Item, error) {
+	result, err := d.db.ExecContext(ctx, `UPDATE tasks SET deleted_at = NULL, updated_at = ?,
+		updated_by_device_id = ?, version = version + 1
+		WHERE id = ? AND version = ? AND deleted_at IS NOT NULL AND deleted_at >= ?`,
+		databaseTime(now), deviceID, id, version, databaseTime(now.Add(-ScheduleTrashRetention)))
+	if err != nil {
+		return taskdomain.Item{}, err
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return taskdomain.Item{}, ErrTaskConflict
+	}
+	return d.TaskByID(ctx, id)
+}
+
+func (d *Database) PermanentlyDeleteTask(ctx context.Context, id string, version int64) error {
+	result, err := d.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = ? AND version = ? AND deleted_at IS NOT NULL`, id, version)
+	if err != nil {
+		return err
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return ErrTaskConflict
+	}
+	return nil
+}
+
+func (d *Database) PurgeExpiredTrashedTasks(ctx context.Context, now time.Time) (int64, error) {
+	result, err := d.db.ExecContext(ctx, `DELETE FROM tasks WHERE deleted_at IS NOT NULL AND deleted_at < ?`, databaseTime(now.Add(-ScheduleTrashRetention)))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

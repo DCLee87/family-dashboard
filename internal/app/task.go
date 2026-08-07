@@ -167,6 +167,85 @@ func (a *App) completeTaskOccurrence(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *App) deleteTask(w http.ResponseWriter, r *http.Request) {
+	device, ok := a.requireContentAdmin(w, r)
+	if !ok {
+		return
+	}
+	request, ok := decodeScheduleVersionRequest(w, r)
+	if !ok {
+		return
+	}
+	err := a.db.TrashTask(r.Context(), r.PathValue("id"), request.Version, device.ID, time.Now().UTC())
+	if errors.Is(err, database.ErrTaskNotFound) {
+		writeAPIError(w, http.StatusNotFound, "task_not_found", "할 일을 찾을 수 없습니다.")
+		return
+	}
+	if errors.Is(err, database.ErrTaskConflict) {
+		writeAPIError(w, http.StatusConflict, "task_version_conflict", "다른 기기에서 할 일이 변경되었습니다.")
+		return
+	}
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "할 일을 삭제하지 못했습니다.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) listTaskTrash(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdminRead(w, r); !ok {
+		return
+	}
+	entries, err := a.db.TrashedTasks(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "할 일 휴지통을 불러오지 못했습니다.")
+		return
+	}
+	type trashView struct {
+		Task         taskView  `json:"task"`
+		DeletedAt    time.Time `json:"deletedAt"`
+		RestoreUntil time.Time `json:"restoreUntil"`
+	}
+	views := make([]trashView, 0, len(entries))
+	for _, entry := range entries {
+		views = append(views, trashView{Task: taskItemView(entry.Item, "single", nil, false),
+			DeletedAt: entry.DeletedAt, RestoreUntil: entry.DeletedAt.Add(database.ScheduleTrashRetention)})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": views})
+}
+
+func (a *App) restoreTask(w http.ResponseWriter, r *http.Request) {
+	device, ok := a.requireContentAdmin(w, r)
+	if !ok {
+		return
+	}
+	request, ok := decodeScheduleVersionRequest(w, r)
+	if !ok {
+		return
+	}
+	item, err := a.db.RestoreTask(r.Context(), r.PathValue("id"), request.Version, device.ID, time.Now().UTC())
+	if err != nil {
+		writeAPIError(w, http.StatusConflict, "task_restore_failed", "할 일을 복원하지 못했습니다.")
+		return
+	}
+	writeJSON(w, http.StatusOK, taskItemView(item, "single", nil, false))
+}
+
+func (a *App) permanentlyDeleteTask(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdmin(w, r); !ok {
+		return
+	}
+	request, ok := decodeScheduleVersionRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := a.db.PermanentlyDeleteTask(r.Context(), r.PathValue("id"), request.Version); err != nil {
+		writeAPIError(w, http.StatusConflict, "task_delete_failed", "할 일을 영구 삭제하지 못했습니다.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func decodeTaskRequest(w http.ResponseWriter, r *http.Request) (taskRequest, taskdomain.Item, bool) {
 	var request taskRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))

@@ -934,6 +934,8 @@ type TaskItem = {
   overdue: boolean;
 };
 
+type TaskTrashEntry = { task: TaskItem; deletedAt: string; restoreUntil: string };
+
 type TaskForm = {
   id: string;
   title: string;
@@ -966,6 +968,8 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [trash, setTrash] = useState<TaskTrashEntry[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
 
   const refreshTasks = useCallback(async () => {
     if (!auth) {
@@ -983,7 +987,14 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
     setMembers(memberResult.members);
   }, [auth]);
 
+  const refreshTaskTrash = useCallback(async () => {
+    if (!auth?.permissions.admin) { setTrash([]); return; }
+    const response = await fetch("/api/admin/task-trash", { cache: "no-store" });
+    if (response.ok) setTrash((await response.json() as { tasks: TaskTrashEntry[] }).tasks);
+  }, [auth]);
+
   useEffect(() => { void refreshTasks(); }, [refreshTasks]);
+  useEffect(() => { void refreshTaskTrash(); }, [refreshTaskTrash]);
 
   if (!auth) return null;
 
@@ -1054,6 +1065,30 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
     setBusy(false);
   }
 
+  async function deleteTask() {
+    if (!form.id || !window.confirm("이 할 일을 휴지통으로 이동할까요?")) return;
+    setBusy(true);
+    const response = await fetch(`/api/v1/tasks/${encodeURIComponent(form.id)}`, {
+      method: "DELETE", headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+      body: JSON.stringify({ version: form.version }),
+    });
+    if (!response.ok) setError("할 일을 삭제하지 못했습니다.");
+    setForm(emptyTaskForm()); setShowForm(false);
+    await Promise.all([refreshTasks(), refreshTaskTrash()]); setBusy(false);
+  }
+
+  async function changeTaskTrash(entry: TaskTrashEntry, action: "restore" | "delete") {
+    if (action === "delete" && !window.confirm(`‘${entry.task.title}’ 할 일을 영구 삭제할까요?`)) return;
+    setBusy(true);
+    const response = await fetch(action === "restore" ? `/api/admin/task-trash/${encodeURIComponent(entry.task.id)}/restore` : `/api/admin/task-trash/${encodeURIComponent(entry.task.id)}`, {
+      method: action === "restore" ? "POST" : "DELETE",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+      body: JSON.stringify({ version: entry.task.version }),
+    });
+    if (!response.ok) setError(action === "restore" ? "할 일을 복원하지 못했습니다." : "할 일을 영구 삭제하지 못했습니다.");
+    await Promise.all([refreshTasks(), refreshTaskTrash()]); setBusy(false);
+  }
+
   return (
     <section className="task-card">
       <div className="schedule-heading">
@@ -1073,11 +1108,12 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
           {form.repeatKind !== "none" && <label><span>반복 종료일 (선택)</span><input type="date" min={form.startsOn} value={form.endsOn} onChange={(event) => setForm({ ...form, endsOn: event.target.value })} /></label>}
           {form.repeatKind === "weekly" && <fieldset><legend>반복 요일</legend><div className="participant-options">{[[0,"일"],[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"]].map(([day,label]) => <label key={day}><input type="checkbox" checked={form.weekdays.includes(day as number)} onChange={() => setForm({ ...form, weekdays: form.weekdays.includes(day as number) ? form.weekdays.filter((value) => value !== day) : [...form.weekdays, day as number] })} /><span>{label}</span></label>)}</div></fieldset>}
           <fieldset><legend>담당 가족</legend><div className="participant-options">{members.map((member) => <label key={member.id}><input type="checkbox" checked={form.assignees.includes(member.id)} onChange={() => toggleAssignee(member.id)} /><span>{member.displayName}</span></label>)}</div></fieldset>
-          <div className="button-row"><button type="submit" disabled={busy}>{form.id ? "할 일 수정" : "할 일 저장"}</button><button type="button" className="secondary" onClick={() => { setShowForm(false); setForm(emptyTaskForm()); }}>취소</button></div>
+          <div className="button-row"><button type="submit" disabled={busy}>{form.id ? "할 일 수정" : "할 일 저장"}</button>{form.id && <button type="button" className="danger" disabled={busy} onClick={() => void deleteTask()}>할 일 삭제</button>}<button type="button" className="secondary" onClick={() => { setShowForm(false); setForm(emptyTaskForm()); }}>취소</button></div>
         </form>
       )}
       {error && <p className="form-error">{error}</p>}
       <div className="task-list">{tasks.map((item) => <article key={`${item.id}-${item.occurrenceKey}`} className={`${item.completedAt ? "task-completed" : ""} ${item.overdue ? "task-overdue" : ""}`}><div><strong>{item.title}</strong><span>{item.priority === "important" ? "중요" : "보통"}{item.overdue ? " · 기한 지남" : ""}{item.repeatKind !== "none" ? ` · ${item.repeatKind === "daily" ? "매일" : "매주"}` : ""}</span>{item.notes && <span>{item.notes}</span>}</div>{auth.permissions.admin && <div className="button-row"><button type="button" className={item.completedAt ? "secondary" : ""} disabled={busy} onClick={() => void setCompleted(item, !item.completedAt)}>{item.completedAt ? "완료 취소" : "완료"}</button><button type="button" className="secondary" onClick={() => editTask(item)}>수정</button></div>}</article>)}</div>
+      {auth.permissions.admin && <div className="schedule-trash"><div className="management-heading"><div><p className="label">할 일 휴지통</p><strong>{trash.length === 0 ? "비어 있음" : `${trash.length}개 할 일`}</strong></div><button type="button" className="secondary" onClick={() => setShowTrash((value) => !value)}>{showTrash ? "휴지통 닫기" : "휴지통 보기"}</button></div>{showTrash && <div className="trash-list">{trash.map((entry) => <article key={entry.task.id}><div><strong>{entry.task.title}</strong><span>복원 가능 {new Date(entry.restoreUntil).toLocaleDateString("ko-KR")}까지</span></div><div className="button-row"><button type="button" className="secondary" onClick={() => void changeTaskTrash(entry, "restore")}>복원</button><button type="button" className="danger" onClick={() => void changeTaskTrash(entry, "delete")}>영구 삭제</button></div></article>)}</div>}</div>}
     </section>
   );
 }
