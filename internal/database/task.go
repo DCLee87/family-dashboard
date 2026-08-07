@@ -142,7 +142,6 @@ func (d *Database) queryTasks(ctx context.Context, clause string, args ...any) (
 	if err != nil {
 		return nil, fmt.Errorf("query tasks: %w", err)
 	}
-	defer rows.Close()
 	var items []taskdomain.Item
 	for rows.Next() {
 		var item taskdomain.Item
@@ -171,17 +170,30 @@ func (d *Database) queryTasks(ctx context.Context, clause string, args ...any) (
 			}
 			item.CompletedAt = &value
 		}
-		item.Assignees, err = d.taskAssignees(ctx, item.ID)
-		if err != nil {
-			return nil, err
-		}
-		item.Weekdays, err = d.taskWeekdays(ctx, item.ID)
-		if err != nil {
-			return nil, err
-		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	// The dashboard intentionally uses a single SQLite connection. Finish and
+	// close the base query before loading relations, otherwise these nested
+	// queries wait forever for the connection held by rows.
+	for index := range items {
+		items[index].Assignees, err = d.taskAssignees(ctx, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		items[index].Weekdays, err = d.taskWeekdays(ctx, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
 }
 
 func (d *Database) taskAssignees(ctx context.Context, id string) ([]string, error) {
