@@ -329,9 +329,8 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 			all_day_hour INTEGER NOT NULL DEFAULT 20 CHECK (all_day_hour BETWEEN 0 AND 23),
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`INSERT INTO schedule_notification_settings(schedule_id)
-		 SELECT id FROM schedules
-		 ON CONFLICT(schedule_id) DO NOTHING`,
+		`INSERT OR IGNORE INTO schedule_notification_settings(schedule_id)
+		 SELECT id FROM schedules`,
 		`CREATE TABLE IF NOT EXISTS schedule_notification_deliveries (
 			id TEXT PRIMARY KEY,
 			schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
