@@ -164,6 +164,7 @@ export default function App() {
       <AdminControl auth={deviceAuth} onChanged={refresh} />
       <NotificationControl auth={deviceAuth} />
       <ScheduleBoard auth={deviceAuth} />
+      <TaskBoard auth={deviceAuth} />
 
       <footer>
         마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"}
@@ -912,6 +913,173 @@ function formatStatusEnd(endsAt: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(endsAt));
+}
+
+type TaskItem = {
+  id: string;
+  title: string;
+  notes?: string;
+  priority: "normal" | "important";
+  dueKind: "none" | "date" | "datetime";
+  dueDate?: string;
+  dueMinute?: number;
+  assignees: string[];
+  repeatKind: "none" | "daily" | "weekly";
+  startsOn?: string;
+  endsOn?: string;
+  weekdays?: number[];
+  version: number;
+  occurrenceKey: string;
+  completedAt?: string;
+  overdue: boolean;
+};
+
+type TaskForm = {
+  id: string;
+  title: string;
+  notes: string;
+  priority: "normal" | "important";
+  dueKind: "none" | "date" | "datetime";
+  dueDate: string;
+  dueTime: string;
+  assignees: string[];
+  repeatKind: "none" | "daily" | "weekly";
+  startsOn: string;
+  endsOn: string;
+  weekdays: number[];
+  version: number;
+};
+
+function emptyTaskForm(): TaskForm {
+  const today = toLocalInput(new Date()).slice(0, 10);
+  return {
+    id: "", title: "", notes: "", priority: "normal", dueKind: "none",
+    dueDate: today, dueTime: "09:00", assignees: [], repeatKind: "none",
+    startsOn: today, endsOn: "", weekdays: [new Date().getDay()], version: 0,
+  };
+}
+
+function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [members, setMembers] = useState<FamilyMember[]>([]);
+  const [form, setForm] = useState<TaskForm>(emptyTaskForm);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refreshTasks = useCallback(async () => {
+    if (!auth) {
+      setTasks([]);
+      return;
+    }
+    const [taskResponse, memberResponse] = await Promise.all([
+      fetch("/api/v1/task-occurrences", { cache: "no-store" }),
+      fetch("/api/v1/family-members", { cache: "no-store" }),
+    ]);
+    if (!taskResponse.ok || !memberResponse.ok) return;
+    const taskResult = await taskResponse.json() as { tasks: TaskItem[] };
+    const memberResult = await memberResponse.json() as { members: FamilyMember[] };
+    setTasks(taskResult.tasks);
+    setMembers(memberResult.members);
+  }, [auth]);
+
+  useEffect(() => { void refreshTasks(); }, [refreshTasks]);
+
+  if (!auth) return null;
+
+  function toggleAssignee(id: string) {
+    setForm((current) => ({
+      ...current,
+      assignees: current.assignees.includes(id)
+        ? current.assignees.filter((value) => value !== id)
+        : [...current.assignees, id],
+    }));
+  }
+
+  function editTask(item: TaskItem) {
+    const hour = Math.floor((item.dueMinute ?? 540) / 60);
+    const minute = (item.dueMinute ?? 540) % 60;
+    setForm({
+      id: item.id, title: item.title, notes: item.notes ?? "", priority: item.priority,
+      dueKind: item.dueKind, dueDate: item.dueDate ?? emptyTaskForm().dueDate,
+      dueTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+      assignees: item.assignees, repeatKind: item.repeatKind,
+      startsOn: item.startsOn ?? emptyTaskForm().startsOn, endsOn: item.endsOn ?? "",
+      weekdays: item.weekdays ?? [], version: item.version,
+    });
+    setShowForm(true);
+  }
+
+  async function saveTask() {
+    setBusy(true);
+    setError("");
+    try {
+      const [hour, minute] = form.dueTime.split(":").map(Number);
+      const response = await fetch(form.id ? `/api/v1/tasks/${encodeURIComponent(form.id)}` : "/api/v1/tasks", {
+        method: form.id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+        body: JSON.stringify({
+          title: form.title, notes: form.notes, priority: form.priority,
+          dueKind: form.dueKind, dueDate: form.dueKind === "none" ? "" : form.dueDate,
+          dueMinute: hour * 60 + minute, assignees: form.assignees,
+          repeatKind: form.repeatKind, startsOn: form.repeatKind === "none" ? "" : form.startsOn,
+          endsOn: form.repeatKind === "none" ? "" : form.endsOn,
+          weekdays: form.repeatKind === "weekly" ? form.weekdays : [], version: form.version,
+        }),
+      });
+      if (!response.ok) {
+        const result = await response.json() as { message?: string };
+        throw new Error(result.message ?? "할 일을 저장하지 못했습니다.");
+      }
+      setForm(emptyTaskForm());
+      setShowForm(false);
+      await refreshTasks();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "할 일을 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setCompleted(item: TaskItem, completed: boolean) {
+    setBusy(true);
+    const action = completed ? "complete" : "reopen";
+    const response = await fetch(`/api/v1/tasks/${encodeURIComponent(item.id)}/occurrences/${encodeURIComponent(item.occurrenceKey)}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+      body: "{}",
+    });
+    if (!response.ok) setError("완료 상태를 변경하지 못했습니다.");
+    await refreshTasks();
+    setBusy(false);
+  }
+
+  return (
+    <section className="task-card">
+      <div className="schedule-heading">
+        <div><p className="label">오늘의 할 일</p><strong>{tasks.length === 0 ? "등록된 할 일 없음" : `${tasks.length}개 할 일`}</strong></div>
+        {auth.permissions.admin && <button type="button" onClick={() => { setForm(emptyTaskForm()); setShowForm((value) => !value); }}>{showForm ? "입력 닫기" : "할 일 추가"}</button>}
+      </div>
+      {showForm && auth.permissions.admin && (
+        <form className="task-form" onSubmit={(event) => { event.preventDefault(); void saveTask(); }}>
+          <label><span>제목</span><input value={form.title} maxLength={200} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+          <label><span>중요도</span><select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as TaskForm["priority"] })}><option value="normal">보통</option><option value="important">중요</option></select></label>
+          <label className="full-width"><span>메모</span><textarea value={form.notes} maxLength={2000} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+          <label><span>마감</span><select value={form.dueKind} onChange={(event) => setForm({ ...form, dueKind: event.target.value as TaskForm["dueKind"] })}><option value="none">마감 없음</option><option value="date">날짜까지</option><option value="datetime">날짜와 시각</option></select></label>
+          {form.dueKind !== "none" && <label><span>마감일</span><input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>}
+          {form.dueKind === "datetime" && <label><span>마감 시각</span><input type="time" value={form.dueTime} onChange={(event) => setForm({ ...form, dueTime: event.target.value })} /></label>}
+          <label><span>반복</span><select value={form.repeatKind} onChange={(event) => setForm({ ...form, repeatKind: event.target.value as TaskForm["repeatKind"] })}><option value="none">반복 없음</option><option value="daily">매일</option><option value="weekly">매주</option></select></label>
+          {form.repeatKind !== "none" && <label><span>반복 시작일</span><input type="date" value={form.startsOn} onChange={(event) => setForm({ ...form, startsOn: event.target.value })} /></label>}
+          {form.repeatKind !== "none" && <label><span>반복 종료일 (선택)</span><input type="date" min={form.startsOn} value={form.endsOn} onChange={(event) => setForm({ ...form, endsOn: event.target.value })} /></label>}
+          {form.repeatKind === "weekly" && <fieldset><legend>반복 요일</legend><div className="participant-options">{[[0,"일"],[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"]].map(([day,label]) => <label key={day}><input type="checkbox" checked={form.weekdays.includes(day as number)} onChange={() => setForm({ ...form, weekdays: form.weekdays.includes(day as number) ? form.weekdays.filter((value) => value !== day) : [...form.weekdays, day as number] })} /><span>{label}</span></label>)}</div></fieldset>}
+          <fieldset><legend>담당 가족</legend><div className="participant-options">{members.map((member) => <label key={member.id}><input type="checkbox" checked={form.assignees.includes(member.id)} onChange={() => toggleAssignee(member.id)} /><span>{member.displayName}</span></label>)}</div></fieldset>
+          <div className="button-row"><button type="submit" disabled={busy}>{form.id ? "할 일 수정" : "할 일 저장"}</button><button type="button" className="secondary" onClick={() => { setShowForm(false); setForm(emptyTaskForm()); }}>취소</button></div>
+        </form>
+      )}
+      {error && <p className="form-error">{error}</p>}
+      <div className="task-list">{tasks.map((item) => <article key={`${item.id}-${item.occurrenceKey}`} className={`${item.completedAt ? "task-completed" : ""} ${item.overdue ? "task-overdue" : ""}`}><div><strong>{item.title}</strong><span>{item.priority === "important" ? "중요" : "보통"}{item.overdue ? " · 기한 지남" : ""}{item.repeatKind !== "none" ? ` · ${item.repeatKind === "daily" ? "매일" : "매주"}` : ""}</span>{item.notes && <span>{item.notes}</span>}</div>{auth.permissions.admin && <div className="button-row"><button type="button" className={item.completedAt ? "secondary" : ""} disabled={busy} onClick={() => void setCompleted(item, !item.completedAt)}>{item.completedAt ? "완료 취소" : "완료"}</button><button type="button" className="secondary" onClick={() => editTask(item)}>수정</button></div>}</article>)}</div>
+    </section>
+  );
 }
 
 type PushConfig = {

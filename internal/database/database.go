@@ -344,6 +344,47 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		)`,
 		`INSERT INTO schema_migrations(version) VALUES (9)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS tasks (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+			notes TEXT CHECK (notes IS NULL OR length(notes) <= 2000),
+			priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal', 'important')),
+			due_kind TEXT NOT NULL DEFAULT 'none' CHECK (due_kind IN ('none', 'date', 'datetime')),
+			due_date TEXT,
+			due_minute INTEGER CHECK (due_minute IS NULL OR due_minute BETWEEN 0 AND 1439),
+			repeat_kind TEXT NOT NULL DEFAULT 'none' CHECK (repeat_kind IN ('none', 'daily', 'weekly')),
+			starts_on TEXT,
+			ends_on TEXT,
+			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+			completed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			deleted_at TEXT,
+			CHECK (ends_on IS NULL OR starts_on IS NULL OR ends_on >= starts_on)
+		)`,
+		`CREATE TABLE IF NOT EXISTS task_assignees (
+			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			family_member_id TEXT NOT NULL REFERENCES family_members(id),
+			PRIMARY KEY(task_id, family_member_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS task_recurrence_days (
+			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+			PRIMARY KEY(task_id, weekday)
+		)`,
+		`CREATE TABLE IF NOT EXISTS task_occurrence_states (
+			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			occurrence_key TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('completed', 'skipped')),
+			completed_at TEXT,
+			completed_by_device_id TEXT REFERENCES devices(id),
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(task_id, occurrence_key)
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (10)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)
