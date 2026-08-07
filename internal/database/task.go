@@ -48,6 +48,9 @@ func (d *Database) CreateTask(ctx context.Context, item taskdomain.Item, deviceI
 	if err := replaceTaskRelations(ctx, tx, item); err != nil {
 		return taskdomain.Item{}, err
 	}
+	if err := createDefaultTaskNotification(ctx, tx, item, now); err != nil {
+		return taskdomain.Item{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return taskdomain.Item{}, err
 	}
@@ -248,17 +251,148 @@ func (d *Database) SetTaskOccurrenceCompleted(ctx context.Context, taskID, key, 
 }
 
 func (d *Database) TaskOccurrenceCompletedAt(ctx context.Context, taskID, key string) (*time.Time, error) {
-	var raw string
-	err := d.db.QueryRowContext(ctx, `SELECT completed_at FROM task_occurrence_states
-		WHERE task_id = ? AND occurrence_key = ? AND status = 'completed'`, taskID, key).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+	status, completedAt, err := d.TaskOccurrenceState(ctx, taskID, key)
+	if err != nil || status != "completed" {
+		return nil, err
 	}
+	return completedAt, nil
+}
+
+func (d *Database) TaskOccurrenceStatus(ctx context.Context, taskID, key string) (string, error) {
+	status, _, err := d.TaskOccurrenceState(ctx, taskID, key)
+	return status, err
+}
+
+func (d *Database) TaskOccurrenceState(ctx context.Context, taskID, key string) (string, *time.Time, error) {
+	var status string
+	var raw sql.NullString
+	err := d.db.QueryRowContext(ctx, `SELECT status, completed_at FROM task_occurrence_states
+		WHERE task_id = ? AND occurrence_key = ?`, taskID, key).Scan(&status, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "pending", nil, nil
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	if !raw.Valid {
+		return status, nil, nil
+	}
+	value, err := parseDatabaseTime(raw.String)
+	return status, &value, err
+}
+
+func (d *Database) SetTaskOccurrenceSkipped(ctx context.Context, taskID, key, deviceID string, skipped bool, now time.Time) error {
+	if _, err := d.TaskByID(ctx, taskID); err != nil {
+		return err
+	}
+	if skipped {
+		_, err := d.db.ExecContext(ctx, `INSERT INTO task_occurrence_states(
+			task_id, occurrence_key, status, completed_at, completed_by_device_id, updated_at
+		) VALUES (?, ?, 'skipped', NULL, ?, ?)
+		ON CONFLICT(task_id, occurrence_key) DO UPDATE SET status = 'skipped',
+			completed_at = NULL, completed_by_device_id = excluded.completed_by_device_id,
+			updated_at = excluded.updated_at`, taskID, key, deviceID, databaseTime(now))
+		return err
+	}
+	_, err := d.db.ExecContext(ctx, `DELETE FROM task_occurrence_states
+		WHERE task_id = ? AND occurrence_key = ? AND status = 'skipped'`, taskID, key)
+	return err
+}
+
+type CompletedTaskOccurrence struct {
+	Item          taskdomain.Item
+	OccurrenceKey string
+	CompletedAt   time.Time
+}
+
+type SkippedTaskOccurrence struct {
+	Item          taskdomain.Item
+	OccurrenceKey string
+	SkippedAt     time.Time
+}
+
+func (d *Database) CompletedTaskOccurrences(ctx context.Context) ([]CompletedTaskOccurrence, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT task_id, occurrence_key, completed_at
+		FROM task_occurrence_states WHERE status = 'completed'
+		ORDER BY completed_at DESC`)
 	if err != nil {
 		return nil, err
 	}
-	value, err := parseDatabaseTime(raw)
-	return &value, err
+	type storedState struct{ taskID, key, completedAt string }
+	var stored []storedState
+	for rows.Next() {
+		var value storedState
+		if err := rows.Scan(&value.taskID, &value.key, &value.completedAt); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		stored = append(stored, value)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	result := make([]CompletedTaskOccurrence, 0, len(stored))
+	for _, state := range stored {
+		item, err := d.TaskByID(ctx, state.taskID)
+		if errors.Is(err, ErrTaskNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		completedAt, err := parseDatabaseTime(state.completedAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, CompletedTaskOccurrence{Item: item, OccurrenceKey: state.key, CompletedAt: completedAt})
+	}
+	return result, nil
+}
+
+func (d *Database) SkippedTaskOccurrences(ctx context.Context) ([]SkippedTaskOccurrence, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT task_id, occurrence_key, updated_at
+		FROM task_occurrence_states WHERE status = 'skipped'
+		ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	type storedState struct{ taskID, key, skippedAt string }
+	var stored []storedState
+	for rows.Next() {
+		var value storedState
+		if err := rows.Scan(&value.taskID, &value.key, &value.skippedAt); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		stored = append(stored, value)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	result := make([]SkippedTaskOccurrence, 0, len(stored))
+	for _, state := range stored {
+		item, err := d.TaskByID(ctx, state.taskID)
+		if errors.Is(err, ErrTaskNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		skippedAt, err := parseDatabaseTime(state.skippedAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, SkippedTaskOccurrence{Item: item, OccurrenceKey: state.key, SkippedAt: skippedAt})
+	}
+	return result, nil
 }
 
 func taskWriteError(ctx context.Context, tx *sql.Tx, id string) error {

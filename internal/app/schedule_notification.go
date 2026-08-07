@@ -21,6 +21,7 @@ func (a *App) startBackgroundWorkers() {
 	go func() {
 		defer a.workerWG.Done()
 		a.processScheduleNotifications(ctx, time.Now().UTC())
+		a.processTaskNotifications(ctx, time.Now().UTC())
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -29,6 +30,7 @@ func (a *App) startBackgroundWorkers() {
 				return
 			case now := <-ticker.C:
 				a.processScheduleNotifications(ctx, now.UTC())
+				a.processTaskNotifications(ctx, now.UTC())
 			}
 		}
 	}()

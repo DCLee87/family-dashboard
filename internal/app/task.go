@@ -129,8 +129,11 @@ func (a *App) listTaskOccurrences(w http.ResponseWriter, r *http.Request) {
 		if item.RepeatKind != taskdomain.RepeatNone {
 			key = date.Format("2006-01-02")
 		}
-		completedAt, err := a.db.TaskOccurrenceCompletedAt(r.Context(), item.ID, key)
+		status, completedAt, err := a.db.TaskOccurrenceState(r.Context(), item.ID, key)
 		if err != nil {
+			continue
+		}
+		if status == "skipped" {
 			continue
 		}
 		if completedAt != nil && completedAt.Before(now.AddDate(0, 0, -7)) {
@@ -165,6 +168,56 @@ func (a *App) completeTaskOccurrence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) skipTaskOccurrence(w http.ResponseWriter, r *http.Request) {
+	device, ok := a.requireContentAdmin(w, r)
+	if !ok {
+		return
+	}
+	skipped := !strings.HasSuffix(r.URL.Path, "/unskip")
+	if err := a.db.SetTaskOccurrenceSkipped(r.Context(), r.PathValue("id"), r.PathValue("key"), device.ID, skipped, time.Now().UTC()); err != nil {
+		if errors.Is(err, database.ErrTaskNotFound) {
+			writeAPIError(w, http.StatusNotFound, "task_not_found", "할 일을 찾을 수 없습니다.")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "회차 상태를 변경하지 못했습니다.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) listTaskHistory(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdminRead(w, r); !ok {
+		return
+	}
+	entries, err := a.db.CompletedTaskOccurrences(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "완료 기록을 불러오지 못했습니다.")
+		return
+	}
+	views := make([]taskView, 0, len(entries))
+	for _, entry := range entries {
+		completedAt := entry.CompletedAt
+		views = append(views, taskItemView(entry.Item, entry.OccurrenceKey, &completedAt, false))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": views})
+}
+
+func (a *App) listTaskSkips(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdminRead(w, r); !ok {
+		return
+	}
+	entries, err := a.db.SkippedTaskOccurrences(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "건너뛴 회차를 불러오지 못했습니다.")
+		return
+	}
+	views := make([]taskView, 0, len(entries))
+	for _, entry := range entries {
+		views = append(views, taskItemView(entry.Item, entry.OccurrenceKey, nil, false))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": views})
 }
 
 func (a *App) deleteTask(w http.ResponseWriter, r *http.Request) {

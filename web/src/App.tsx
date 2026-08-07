@@ -950,6 +950,10 @@ type TaskForm = {
   endsOn: string;
   weekdays: number[];
   version: number;
+  notificationEnabled: boolean;
+  notificationLeadMinutes: number;
+  notificationDateHour: number;
+  notificationRecipients: string[];
 };
 
 function emptyTaskForm(): TaskForm {
@@ -958,6 +962,8 @@ function emptyTaskForm(): TaskForm {
     id: "", title: "", notes: "", priority: "normal", dueKind: "none",
     dueDate: today, dueTime: "09:00", assignees: [], repeatKind: "none",
     startsOn: today, endsOn: "", weekdays: [new Date().getDay()], version: 0,
+    notificationEnabled: false, notificationLeadMinutes: 60, notificationDateHour: 9,
+    notificationRecipients: ["dad", "mom"],
   };
 }
 
@@ -970,6 +976,10 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
   const [error, setError] = useState("");
   const [trash, setTrash] = useState<TaskTrashEntry[]>([]);
   const [showTrash, setShowTrash] = useState(false);
+  const [history, setHistory] = useState<TaskItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [skipped, setSkipped] = useState<TaskItem[]>([]);
+  const [showSkipped, setShowSkipped] = useState(false);
 
   const refreshTasks = useCallback(async () => {
     if (!auth) {
@@ -993,17 +1003,44 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
     if (response.ok) setTrash((await response.json() as { tasks: TaskTrashEntry[] }).tasks);
   }, [auth]);
 
+  const refreshTaskHistory = useCallback(async () => {
+    if (!auth?.permissions.admin) { setHistory([]); return; }
+    const response = await fetch("/api/admin/task-history", { cache: "no-store" });
+    if (response.ok) setHistory((await response.json() as { tasks: TaskItem[] }).tasks);
+  }, [auth]);
+
+  const refreshSkippedTasks = useCallback(async () => {
+    if (!auth?.permissions.admin) { setSkipped([]); return; }
+    const response = await fetch("/api/admin/task-skips", { cache: "no-store" });
+    if (response.ok) setSkipped((await response.json() as { tasks: TaskItem[] }).tasks);
+  }, [auth]);
+
   useEffect(() => { void refreshTasks(); }, [refreshTasks]);
   useEffect(() => { void refreshTaskTrash(); }, [refreshTaskTrash]);
+  useEffect(() => { void refreshTaskHistory(); }, [refreshTaskHistory]);
+  useEffect(() => { void refreshSkippedTasks(); }, [refreshSkippedTasks]);
 
   if (!auth) return null;
 
   function toggleAssignee(id: string) {
+    setForm((current) => {
+      const assignees = current.assignees.includes(id)
+        ? current.assignees.filter((value) => value !== id)
+        : [...current.assignees, id];
+      const notificationRecipients = current.id
+        ? current.notificationRecipients
+        : assignees.length === 1 && assignees[0] === "dad" ? ["dad"]
+          : assignees.length === 1 && assignees[0] === "mom" ? ["mom"] : ["dad", "mom"];
+      return { ...current, assignees, notificationRecipients };
+    });
+  }
+
+  function toggleTaskNotificationRecipient(owner: string) {
     setForm((current) => ({
       ...current,
-      assignees: current.assignees.includes(id)
-        ? current.assignees.filter((value) => value !== id)
-        : [...current.assignees, id],
+      notificationRecipients: current.notificationRecipients.includes(owner)
+        ? current.notificationRecipients.filter((value) => value !== owner)
+        : [...current.notificationRecipients, owner],
     }));
   }
 
@@ -1017,8 +1054,23 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
       assignees: item.assignees, repeatKind: item.repeatKind,
       startsOn: item.startsOn ?? emptyTaskForm().startsOn, endsOn: item.endsOn ?? "",
       weekdays: item.weekdays ?? [], version: item.version,
+      notificationEnabled: item.dueKind !== "none", notificationLeadMinutes: 60,
+      notificationDateHour: 9, notificationRecipients: ["dad", "mom"],
     });
     setShowForm(true);
+    void fetch(`/api/v1/tasks/${encodeURIComponent(item.id)}/notification`, { cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as {
+        enabled: boolean; timedLeadMinutes: number; dateHour: number; recipients: string[];
+      } : null)
+      .then((setting) => {
+        if (!setting) return;
+        setForm((current) => current.id === item.id ? {
+          ...current, notificationEnabled: setting.enabled,
+          notificationLeadMinutes: setting.timedLeadMinutes,
+          notificationDateHour: setting.dateHour,
+          notificationRecipients: setting.recipients,
+        } : current);
+      });
   }
 
   async function saveTask() {
@@ -1042,6 +1094,20 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
         const result = await response.json() as { message?: string };
         throw new Error(result.message ?? "할 일을 저장하지 못했습니다.");
       }
+      const saved = await response.json() as TaskItem;
+      const notificationResponse = await fetch(`/api/v1/tasks/${encodeURIComponent(saved.id)}/notification`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+        body: JSON.stringify({
+          enabled: form.dueKind !== "none" && form.notificationEnabled,
+          timedLeadMinutes: form.notificationLeadMinutes,
+          dateHour: form.notificationDateHour,
+          recipients: form.notificationRecipients,
+        }),
+      });
+      if (!notificationResponse.ok) {
+        throw new Error("할 일은 저장됐지만 알림 설정을 저장하지 못했습니다.");
+      }
       setForm(emptyTaskForm());
       setShowForm(false);
       await refreshTasks();
@@ -1061,7 +1127,20 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
       body: "{}",
     });
     if (!response.ok) setError("완료 상태를 변경하지 못했습니다.");
-    await refreshTasks();
+    await Promise.all([refreshTasks(), refreshTaskHistory()]);
+    setBusy(false);
+  }
+
+  async function setTaskOccurrenceSkipped(item: TaskItem, shouldSkip: boolean) {
+    if (shouldSkip && !window.confirm("이 반복 할 일의 이번 회차를 건너뛸까요?")) return;
+    setBusy(true);
+    const response = await fetch(`/api/v1/tasks/${encodeURIComponent(item.id)}/occurrences/${encodeURIComponent(item.occurrenceKey)}/${shouldSkip ? "skip" : "unskip"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("family_dashboard_csrf") },
+      body: "{}",
+    });
+    if (!response.ok) setError(shouldSkip ? "이번 회차를 건너뛰지 못했습니다." : "건너뛴 회차를 복원하지 못했습니다.");
+    await Promise.all([refreshTasks(), refreshSkippedTasks()]);
     setBusy(false);
   }
 
@@ -1100,7 +1179,7 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
           <label><span>제목</span><input value={form.title} maxLength={200} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
           <label><span>중요도</span><select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as TaskForm["priority"] })}><option value="normal">보통</option><option value="important">중요</option></select></label>
           <label className="full-width"><span>메모</span><textarea value={form.notes} maxLength={2000} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
-          <label><span>마감</span><select value={form.dueKind} onChange={(event) => setForm({ ...form, dueKind: event.target.value as TaskForm["dueKind"] })}><option value="none">마감 없음</option><option value="date">날짜까지</option><option value="datetime">날짜와 시각</option></select></label>
+          <label><span>마감</span><select value={form.dueKind} onChange={(event) => { const dueKind = event.target.value as TaskForm["dueKind"]; setForm({ ...form, dueKind, notificationEnabled: dueKind !== "none" }); }}><option value="none">마감 없음</option><option value="date">날짜까지</option><option value="datetime">날짜와 시각</option></select></label>
           {form.dueKind !== "none" && <label><span>마감일</span><input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>}
           {form.dueKind === "datetime" && <label><span>마감 시각</span><input type="time" value={form.dueTime} onChange={(event) => setForm({ ...form, dueTime: event.target.value })} /></label>}
           <label><span>반복</span><select value={form.repeatKind} onChange={(event) => setForm({ ...form, repeatKind: event.target.value as TaskForm["repeatKind"] })}><option value="none">반복 없음</option><option value="daily">매일</option><option value="weekly">매주</option></select></label>
@@ -1108,11 +1187,14 @@ function TaskBoard({ auth }: { auth: DeviceAuth | null }) {
           {form.repeatKind !== "none" && <label><span>반복 종료일 (선택)</span><input type="date" min={form.startsOn} value={form.endsOn} onChange={(event) => setForm({ ...form, endsOn: event.target.value })} /></label>}
           {form.repeatKind === "weekly" && <fieldset><legend>반복 요일</legend><div className="participant-options">{[[0,"일"],[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"]].map(([day,label]) => <label key={day}><input type="checkbox" checked={form.weekdays.includes(day as number)} onChange={() => setForm({ ...form, weekdays: form.weekdays.includes(day as number) ? form.weekdays.filter((value) => value !== day) : [...form.weekdays, day as number] })} /><span>{label}</span></label>)}</div></fieldset>}
           <fieldset><legend>담당 가족</legend><div className="participant-options">{members.map((member) => <label key={member.id}><input type="checkbox" checked={form.assignees.includes(member.id)} onChange={() => toggleAssignee(member.id)} /><span>{member.displayName}</span></label>)}</div></fieldset>
+          {form.dueKind !== "none" && <fieldset><legend>할 일 알림</legend><label className="recurrence-toggle"><input type="checkbox" checked={form.notificationEnabled} onChange={(event) => setForm({ ...form, notificationEnabled: event.target.checked })} /><span>부모 모바일 알림 사용</span></label>{form.notificationEnabled && <><label><span>{form.dueKind === "datetime" ? "마감 전 알림" : "알림 시각"}</span>{form.dueKind === "datetime" ? <select value={form.notificationLeadMinutes} onChange={(event) => setForm({ ...form, notificationLeadMinutes: Number(event.target.value) })}><option value={0}>마감 시각</option><option value={10}>10분 전</option><option value={30}>30분 전</option><option value={60}>1시간 전</option><option value={1440}>하루 전</option></select> : <select value={form.notificationDateHour} onChange={(event) => setForm({ ...form, notificationDateHour: Number(event.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>)}</select>}</label><div className="participant-options" aria-label="알림 수신자"><label><input type="checkbox" checked={form.notificationRecipients.includes("dad")} onChange={() => toggleTaskNotificationRecipient("dad")} /><span>아빠 모바일</span></label><label><input type="checkbox" checked={form.notificationRecipients.includes("mom")} onChange={() => toggleTaskNotificationRecipient("mom")} /><span>엄마 모바일</span></label></div></>}</fieldset>}
           <div className="button-row"><button type="submit" disabled={busy}>{form.id ? "할 일 수정" : "할 일 저장"}</button>{form.id && <button type="button" className="danger" disabled={busy} onClick={() => void deleteTask()}>할 일 삭제</button>}<button type="button" className="secondary" onClick={() => { setShowForm(false); setForm(emptyTaskForm()); }}>취소</button></div>
         </form>
       )}
       {error && <p className="form-error">{error}</p>}
-      <div className="task-list">{tasks.map((item) => <article key={`${item.id}-${item.occurrenceKey}`} className={`${item.completedAt ? "task-completed" : ""} ${item.overdue ? "task-overdue" : ""}`}><div><strong>{item.title}</strong><span>{item.priority === "important" ? "중요" : "보통"}{item.overdue ? " · 기한 지남" : ""}{item.repeatKind !== "none" ? ` · ${item.repeatKind === "daily" ? "매일" : "매주"}` : ""}</span>{item.notes && <span>{item.notes}</span>}</div>{auth.permissions.admin && <div className="button-row"><button type="button" className={item.completedAt ? "secondary" : ""} disabled={busy} onClick={() => void setCompleted(item, !item.completedAt)}>{item.completedAt ? "완료 취소" : "완료"}</button><button type="button" className="secondary" onClick={() => editTask(item)}>수정</button></div>}</article>)}</div>
+      <div className="task-list">{tasks.map((item) => <article key={`${item.id}-${item.occurrenceKey}`} className={`${item.completedAt ? "task-completed" : ""} ${item.overdue ? "task-overdue" : ""}`}><div><strong>{item.title}</strong><span>{item.priority === "important" ? "중요" : "보통"}{item.overdue ? " · 기한 지남" : ""}{item.repeatKind !== "none" ? ` · ${item.repeatKind === "daily" ? "매일" : "매주"}` : ""}</span>{item.notes && <span>{item.notes}</span>}</div>{auth.permissions.admin && <div className="button-row"><button type="button" className={item.completedAt ? "secondary" : ""} disabled={busy} onClick={() => void setCompleted(item, !item.completedAt)}>{item.completedAt ? "완료 취소" : "완료"}</button>{item.repeatKind !== "none" && !item.completedAt && <button type="button" className="secondary" disabled={busy} onClick={() => void setTaskOccurrenceSkipped(item, true)}>이번 회차 건너뛰기</button>}<button type="button" className="secondary" onClick={() => editTask(item)}>수정</button></div>}</article>)}</div>
+      {auth.permissions.admin && <div className="schedule-trash"><div className="management-heading"><div><p className="label">완료 기록</p><strong>{history.length === 0 ? "비어 있음" : `${history.length}개 기록`}</strong></div><button type="button" className="secondary" onClick={() => setShowHistory((value) => !value)}>{showHistory ? "기록 닫기" : "기록 보기"}</button></div>{showHistory && <div className="trash-list">{history.map((item) => <article key={`${item.id}-${item.occurrenceKey}`}><div><strong>{item.title}</strong><span>{item.completedAt ? new Date(item.completedAt).toLocaleString("ko-KR") : "완료"}</span></div><button type="button" className="secondary" disabled={busy} onClick={() => void setCompleted(item, false)}>미완료로 복원</button></article>)}</div>}</div>}
+      {auth.permissions.admin && <div className="schedule-trash"><div className="management-heading"><div><p className="label">건너뛴 회차</p><strong>{skipped.length === 0 ? "비어 있음" : `${skipped.length}개 회차`}</strong></div><button type="button" className="secondary" onClick={() => setShowSkipped((value) => !value)}>{showSkipped ? "목록 닫기" : "목록 보기"}</button></div>{showSkipped && <div className="trash-list">{skipped.map((item) => <article key={`${item.id}-${item.occurrenceKey}`}><div><strong>{item.title}</strong><span>{item.occurrenceKey}</span></div><button type="button" className="secondary" disabled={busy} onClick={() => void setTaskOccurrenceSkipped(item, false)}>회차 복원</button></article>)}</div>}</div>}
       {auth.permissions.admin && <div className="schedule-trash"><div className="management-heading"><div><p className="label">할 일 휴지통</p><strong>{trash.length === 0 ? "비어 있음" : `${trash.length}개 할 일`}</strong></div><button type="button" className="secondary" onClick={() => setShowTrash((value) => !value)}>{showTrash ? "휴지통 닫기" : "휴지통 보기"}</button></div>{showTrash && <div className="trash-list">{trash.map((entry) => <article key={entry.task.id}><div><strong>{entry.task.title}</strong><span>복원 가능 {new Date(entry.restoreUntil).toLocaleDateString("ko-KR")}까지</span></div><div className="button-row"><button type="button" className="secondary" onClick={() => void changeTaskTrash(entry, "restore")}>복원</button><button type="button" className="danger" onClick={() => void changeTaskTrash(entry, "delete")}>영구 삭제</button></div></article>)}</div>}</div>}
     </section>
   );

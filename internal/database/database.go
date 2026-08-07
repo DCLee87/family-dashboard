@@ -384,6 +384,30 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		)`,
 		`INSERT INTO schema_migrations(version) VALUES (10)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS task_notification_settings (
+			task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+			enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+			timed_lead_minutes INTEGER NOT NULL DEFAULT 60 CHECK (timed_lead_minutes BETWEEN 0 AND 10080),
+			date_hour INTEGER NOT NULL DEFAULT 9 CHECK (date_hour BETWEEN 0 AND 23),
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS task_notification_recipients (
+			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			owner TEXT NOT NULL CHECK (owner IN ('dad', 'mom')),
+			PRIMARY KEY(task_id, owner)
+		)`,
+		`CREATE TABLE IF NOT EXISTS task_notification_deliveries (
+			id TEXT PRIMARY KEY,
+			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			occurrence_key TEXT NOT NULL,
+			device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+			notify_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			sent_at TEXT,
+			UNIQUE(task_id, occurrence_key, device_id, notify_at)
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (11)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

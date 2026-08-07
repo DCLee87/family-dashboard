@@ -12,6 +12,7 @@ E4 기준선을 바탕으로 일정의 최소 종단 흐름을 구현한다. 운
 ## 다음 반복
 
 - [C2 반복 일정과 회차 예외 계획](c2-recurring-schedules.md)
+- [C4 할 일과 알림 수직 조각](c4-task-notifications.md)
 
 ## 예정 산출물
 
