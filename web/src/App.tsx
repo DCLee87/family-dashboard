@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { C5Dashboard } from "./C5Dashboard";
 
 type Health = {
   status: "loading" | "ok" | "error";
@@ -18,7 +19,7 @@ type SetupResult = {
   };
 };
 
-type DeviceAuth = {
+export type DeviceAuth = {
   status: "authenticated";
   device: {
     id: string;
@@ -130,7 +131,7 @@ export default function App() {
       <header>
         <p className="eyebrow">{(runtime?.version || "FAMILY").toUpperCase()} · FAMILY SCHEDULE</p>
         <h1>우리 가족 대시보드</h1>
-        <p className="subtitle">등록된 가족 기기에서 오늘의 일정과 NAS 서비스 상태를 함께 확인합니다.</p>
+        <p className="subtitle">등록된 가족 기기에서 일정·할 일·공지와 날씨를 함께 확인합니다.</p>
       </header>
 
       <section className={`status-card ${healthy && online ? "healthy" : "unhealthy"}`}>
@@ -163,8 +164,9 @@ export default function App() {
 
       <AdminControl auth={deviceAuth} onChanged={refresh} />
       <NotificationControl auth={deviceAuth} />
-      <ScheduleBoard auth={deviceAuth} />
-      <TaskBoard auth={deviceAuth} />
+      <C5Dashboard auth={deviceAuth}
+        schedule={<ScheduleBoard auth={deviceAuth} />}
+        tasks={<TaskBoard auth={deviceAuth} />} />
 
       <footer>
         마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"}

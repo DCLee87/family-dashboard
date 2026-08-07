@@ -202,6 +202,29 @@ button:disabled { cursor: wait; opacity: .65; }
 .task-list span { color: #687871; font-size: .88rem; }
 .task-completed strong { text-decoration: line-through; opacity: .62; }
 .task-overdue { padding-left: 12px !important; border-left: 4px solid #c45b46; }
+
+.dashboard-widgets { display: grid; gap: 18px; }
+.domain-card, .preference-card { background: rgba(255,255,255,.9); border: 1px solid var(--line); border-radius: 22px; padding: 22px; box-shadow: 0 12px 32px rgba(67,57,44,.07); }
+.domain-form { display: grid; gap: 14px; margin: 18px 0; padding: 18px; background: #faf7f0; border-radius: 16px; }
+.domain-form textarea { min-height: 110px; resize: vertical; }
+.form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.board-list { display: grid; gap: 12px; margin-top: 16px; }
+.board-list article { display: flex; justify-content: space-between; gap: 16px; padding: 16px; border-radius: 16px; background: #f7f4ec; }
+.board-list article.important { border-left: 5px solid #cf5c42; background: #fff1e9; }
+.board-list article strong, .board-list article p { display: block; margin-top: 7px; white-space: pre-wrap; }
+.badge { display: inline-block; border-radius: 999px; padding: 3px 9px; background: #e8e1d4; font-size: .78rem; }
+.current-weather { display: flex; align-items: baseline; gap: 14px; margin: 22px 0; }
+.current-weather strong { font-size: 3.4rem; line-height: 1; }
+.forecast-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin: 16px 0; }
+.forecast-grid article { display: grid; gap: 6px; padding: 12px 8px; text-align: center; background: #eef4f1; border-radius: 14px; }
+.forecast-grid small { color: var(--muted); }
+.stale-warning { color: #9a6228; }
+.preference-card { margin-top: 18px; }
+.preference-list { display: grid; gap: 10px; margin-top: 14px; }
+.preference-list > div { display: flex; align-items: center; gap: 8px; }
+.preference-list > div span { flex: 1; font-weight: 700; }
+@media (min-width: 920px) { .device-trusted_pc { grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; } .device-trusted_pc .widget-schedule, .device-trusted_pc .widget-tasks { grid-column: 1 / -1; } }
+@media (max-width: 680px) { .form-grid { grid-template-columns: 1fr; } .forecast-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .board-list article { flex-direction: column; } }
 .schedule-heading, .schedule-list article {
   display: flex;
   justify-content: space-between;

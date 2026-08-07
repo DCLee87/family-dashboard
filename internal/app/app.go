@@ -32,12 +32,14 @@ type Config struct {
 }
 
 type App struct {
-	config     Config
-	db         *database.Database
-	logger     *slog.Logger
-	pushClient webpush.HTTPClient
-	workerStop context.CancelFunc
-	workerWG   sync.WaitGroup
+	config         Config
+	db             *database.Database
+	logger         *slog.Logger
+	pushClient     webpush.HTTPClient
+	weatherClient  *http.Client
+	weatherBaseURL string
+	workerStop     context.CancelFunc
+	workerWG       sync.WaitGroup
 }
 
 func New(config Config, logger *slog.Logger) (*App, error) {
@@ -68,8 +70,23 @@ func New(config Config, logger *slog.Logger) (*App, error) {
 	} else if purged > 0 {
 		logger.Info("expired trashed tasks purged", "count", purged)
 	}
+	location, _ := time.LoadLocation("Asia/Seoul")
+	if archived, err := db.ArchiveExpiredBoardItems(context.Background(), time.Now().In(location).Format("2006-01-02"), time.Now().UTC()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("archive expired board items: %w", err)
+	} else if archived > 0 {
+		logger.Info("expired board items archived", "count", archived)
+	}
+	if purged, err := db.PurgeExpiredBoardItems(context.Background(), time.Now().UTC()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("purge expired board trash: %w", err)
+	} else if purged > 0 {
+		logger.Info("expired board items purged", "count", purged)
+	}
 	application := &App{
 		config: config, db: db, logger: logger, pushClient: http.DefaultClient,
+		weatherClient:  &http.Client{Timeout: 5 * time.Second},
+		weatherBaseURL: "https://api.open-meteo.com/v1/forecast",
 	}
 	if config.RecordStart {
 		if err := application.ensureInitialSetupCode(context.Background()); err != nil {
@@ -132,6 +149,23 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/admin/schedule-trash", a.listScheduleTrash)
 	mux.HandleFunc("POST /api/admin/schedule-trash/{id}/restore", a.restoreSchedule)
 	mux.HandleFunc("DELETE /api/admin/schedule-trash/{id}", a.permanentlyDeleteSchedule)
+	mux.HandleFunc("GET /api/v1/board-items", a.listBoardItems)
+	mux.HandleFunc("POST /api/v1/board-items", a.createBoardItem)
+	mux.HandleFunc("PUT /api/v1/board-items/{id}", a.updateBoardItem)
+	mux.HandleFunc("POST /api/v1/board-items/{id}/archive", a.setBoardStatus("archived"))
+	mux.HandleFunc("POST /api/v1/board-items/{id}/publish", a.setBoardStatus("published"))
+	mux.HandleFunc("DELETE /api/v1/board-items/{id}", a.setBoardStatus("trashed"))
+	mux.HandleFunc("GET /api/admin/board-archive", a.listBoardAdmin("archived"))
+	mux.HandleFunc("GET /api/admin/board-trash", a.listBoardAdmin("trashed"))
+	mux.HandleFunc("POST /api/admin/board-trash/{id}/restore", a.setBoardStatus("published"))
+	mux.HandleFunc("DELETE /api/admin/board-trash/{id}", a.permanentlyDeleteBoardItem)
+	mux.HandleFunc("GET /api/v1/places", a.listPlaces)
+	mux.HandleFunc("POST /api/v1/places", a.savePlace)
+	mux.HandleFunc("PUT /api/v1/places/{id}", a.savePlace)
+	mux.HandleFunc("DELETE /api/v1/places/{id}", a.deletePlace)
+	mux.HandleFunc("GET /api/v1/weather", a.weather)
+	mux.HandleFunc("GET /api/v1/dashboard-preferences", a.dashboardPreferences)
+	mux.HandleFunc("PUT /api/v1/dashboard-preferences", a.saveDashboardPreferences)
 
 	dist, err := fs.Sub(webui.Files, "dist")
 	if err != nil {

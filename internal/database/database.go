@@ -408,6 +408,62 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		)`,
 		`INSERT INTO schema_migrations(version) VALUES (11)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS board_items (
+			id TEXT PRIMARY KEY,
+			kind TEXT NOT NULL CHECK (kind IN ('notice', 'memo')),
+			title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+			body TEXT NOT NULL CHECK (length(body) BETWEEN 1 AND 4000),
+			priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal', 'important')),
+			visibility TEXT NOT NULL DEFAULT 'family' CHECK (visibility IN ('family', 'tv_summary', 'parents_only')),
+			starts_on TEXT NOT NULL,
+			ends_on TEXT,
+			push_enabled INTEGER NOT NULL DEFAULT 0 CHECK (push_enabled IN (0, 1)),
+			status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'archived', 'trashed')),
+			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			version INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			archived_at TEXT,
+			deleted_at TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS board_items_status_dates
+		 ON board_items(status, starts_on, ends_on)`,
+		`CREATE TABLE IF NOT EXISTS board_push_deliveries (
+			board_item_id TEXT NOT NULL REFERENCES board_items(id) ON DELETE CASCADE,
+			device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+			created_at TEXT NOT NULL,
+			sent_at TEXT,
+			PRIMARY KEY(board_item_id, device_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS places (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+			region_label TEXT NOT NULL CHECK (length(region_label) BETWEEN 1 AND 120),
+			latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+			longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+			is_home INTEGER NOT NULL DEFAULT 0 CHECK (is_home IN (0, 1)),
+			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			version INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS places_single_home ON places(is_home) WHERE is_home = 1`,
+		`CREATE TABLE IF NOT EXISTS weather_cache (
+			place_id TEXT PRIMARY KEY REFERENCES places(id) ON DELETE CASCADE,
+			payload TEXT NOT NULL,
+			fetched_at TEXT NOT NULL,
+			last_error_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_preferences (
+			device_type TEXT PRIMARY KEY CHECK (device_type IN ('trusted_pc', 'parent_mobile', 'shared_tablet', 'tv')),
+			widget_order TEXT NOT NULL,
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_at TEXT NOT NULL
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (12)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

@@ -112,8 +112,8 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 11 {
-		t.Fatalf("schema version: got %d, want 11", version)
+	if version != 12 {
+		t.Fatalf("schema version: got %d, want 12", version)
 	}
 
 	tables := []string{
@@ -208,8 +208,8 @@ func TestDatabaseMigratesE1Schema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 11 {
-		t.Fatalf("migrated schema version: got %d, want 11", version)
+	if version != 12 {
+		t.Fatalf("migrated schema version: got %d, want 12", version)
 	}
 }
 
