@@ -38,6 +38,9 @@ type App struct {
 }
 
 func New(config Config, logger *slog.Logger) (*App, error) {
+	if _, err := time.LoadLocation("Asia/Seoul"); err != nil {
+		return nil, fmt.Errorf("load family timezone: %w", err)
+	}
 	if (config.VAPIDPublicKey == "") != (config.VAPIDPrivateKey == "") {
 		return nil, fmt.Errorf("configure VAPID keys: %w", security.ErrInvalidVAPIDKeys)
 	}
