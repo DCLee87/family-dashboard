@@ -33,6 +33,101 @@ type scheduleRequest struct {
 	EndDate           string                   `json:"endDate,omitempty"`
 }
 
+type scheduleVersionRequest struct {
+	Version int64 `json:"version"`
+}
+
+func (a *App) deleteSchedule(w http.ResponseWriter, r *http.Request) {
+	device, ok := a.requireContentAdmin(w, r)
+	if !ok {
+		return
+	}
+	request, ok := decodeScheduleVersionRequest(w, r)
+	if !ok {
+		return
+	}
+	err := a.db.TrashSchedule(r.Context(), r.PathValue("id"), request.Version, device.ID, time.Now().UTC())
+	switch {
+	case errors.Is(err, database.ErrScheduleNotFound):
+		writeAPIError(w, http.StatusNotFound, "schedule_not_found", "일정을 찾을 수 없습니다.")
+	case errors.Is(err, database.ErrScheduleConflict):
+		writeAPIError(w, http.StatusConflict, "schedule_version_conflict", "다른 기기에서 일정이 변경되었습니다.")
+	case err != nil:
+		a.scheduleInternalError(w, "schedule deletion failed", err)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (a *App) listScheduleTrash(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdminRead(w, r); !ok {
+		return
+	}
+	entries, err := a.db.TrashedSchedules(r.Context())
+	if err != nil {
+		a.scheduleInternalError(w, "schedule trash list failed", err)
+		return
+	}
+	type trashView struct {
+		Schedule     scheduledomain.View `json:"schedule"`
+		DeletedAt    time.Time           `json:"deletedAt"`
+		RestoreUntil time.Time           `json:"restoreUntil"`
+	}
+	views := make([]trashView, 0, len(entries))
+	for _, entry := range entries {
+		view, _ := scheduledomain.Project(entry.Item, scheduledomain.AudienceParent)
+		views = append(views, trashView{
+			Schedule: view, DeletedAt: entry.DeletedAt,
+			RestoreUntil: entry.DeletedAt.Add(database.ScheduleTrashRetention),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"schedules": views})
+}
+
+func (a *App) restoreSchedule(w http.ResponseWriter, r *http.Request) {
+	device, ok := a.requireContentAdmin(w, r)
+	if !ok {
+		return
+	}
+	request, ok := decodeScheduleVersionRequest(w, r)
+	if !ok {
+		return
+	}
+	item, err := a.db.RestoreSchedule(r.Context(), r.PathValue("id"), request.Version, device.ID, time.Now().UTC())
+	switch {
+	case errors.Is(err, database.ErrScheduleNotFound):
+		writeAPIError(w, http.StatusNotFound, "trashed_schedule_not_found", "휴지통 일정을 찾을 수 없습니다.")
+	case errors.Is(err, database.ErrScheduleConflict):
+		writeAPIError(w, http.StatusConflict, "schedule_version_conflict", "다른 기기에서 일정이 변경되었습니다.")
+	case err != nil:
+		a.scheduleInternalError(w, "schedule restore failed", err)
+	default:
+		view, _ := scheduledomain.Project(item, scheduledomain.AudienceParent)
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+func (a *App) permanentlyDeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireContentAdmin(w, r); !ok {
+		return
+	}
+	request, ok := decodeScheduleVersionRequest(w, r)
+	if !ok {
+		return
+	}
+	err := a.db.PermanentlyDeleteSchedule(r.Context(), r.PathValue("id"), request.Version)
+	switch {
+	case errors.Is(err, database.ErrScheduleNotFound):
+		writeAPIError(w, http.StatusNotFound, "trashed_schedule_not_found", "휴지통 일정을 찾을 수 없습니다.")
+	case errors.Is(err, database.ErrScheduleConflict):
+		writeAPIError(w, http.StatusConflict, "schedule_version_conflict", "다른 기기에서 일정이 변경되었습니다.")
+	case err != nil:
+		a.scheduleInternalError(w, "schedule permanent deletion failed", err)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func (a *App) updateScheduleOccurrence(w http.ResponseWriter, r *http.Request) {
 	_, ok := a.requireContentAdmin(w, r)
 	if !ok {
@@ -509,6 +604,25 @@ func decodeScheduleRequest(
 		return request, scheduledomain.Item{}, false
 	}
 	return request, item, true
+}
+
+func decodeScheduleVersionRequest(w http.ResponseWriter, r *http.Request) (scheduleVersionRequest, bool) {
+	var request scheduleVersionRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "요청 형식이 올바르지 않습니다.")
+		return request, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "요청 본문은 하나만 허용됩니다.")
+		return request, false
+	}
+	if request.Version < 1 {
+		writeAPIError(w, http.StatusBadRequest, "version_required", "일정 버전이 필요합니다.")
+		return request, false
+	}
+	return request, true
 }
 
 func parseScheduleRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {

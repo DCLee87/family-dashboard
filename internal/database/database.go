@@ -313,6 +313,37 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		)`,
 		`INSERT INTO schema_migrations(version) VALUES (7)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_deletion_metadata (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			deleted_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			deleted_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS schedule_deletion_metadata_deleted
+		 ON schedule_deletion_metadata(deleted_at)`,
+		`INSERT INTO schema_migrations(version) VALUES (8)
+		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_notification_settings (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+			timed_lead_minutes INTEGER NOT NULL DEFAULT 30 CHECK (timed_lead_minutes BETWEEN 0 AND 10080),
+			all_day_hour INTEGER NOT NULL DEFAULT 20 CHECK (all_day_hour BETWEEN 0 AND 23),
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO schedule_notification_settings(schedule_id)
+		 SELECT id FROM schedules
+		 ON CONFLICT(schedule_id) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_notification_deliveries (
+			id TEXT PRIMARY KEY,
+			schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+			occurrence_key TEXT NOT NULL DEFAULT '',
+			device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+			notify_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			sent_at TEXT,
+			UNIQUE(schedule_id, occurrence_key, device_id, notify_at)
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (9)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)

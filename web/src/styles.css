@@ -251,6 +251,8 @@ button.filter-active { background: #2e806c; }
 .participant-options input { width: auto; }
 .recurrence-toggle { display: flex; align-items: center; gap: 8px; }
 .schedule-form .recurrence-toggle input { width: auto; }
+.notification-setting-fields { display: grid; grid-template-columns: minmax(180px, 320px); margin-top: 12px; }
+.notification-setting-fields label { display: grid; gap: 7px; }
 .schedule-form .button-row { grid-column: 1 / -1; }
 .schedule-list { display: grid; }
 .schedule-list article { padding: 16px 0; border-top: 1px solid rgba(22,48,45,.1); }
@@ -264,6 +266,23 @@ button.filter-active { background: #2e806c; }
 .overlap-badge { width: fit-content; padding: 3px 8px; border-radius: 999px; color: #8b3427 !important; background: rgba(196,91,70,.12); }
 .recurrence-badge { width: fit-content; padding: 3px 8px; border-radius: 999px; color: #276859 !important; background: rgba(46,128,108,.12); }
 .schedule-empty { margin: 0; padding: 22px 0 8px; color: #78847e; text-align: center; }
+.schedule-trash {
+  display: grid;
+  gap: 14px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(22,48,45,.14);
+}
+.trash-list { display: grid; }
+.trash-list article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(22,48,45,.1);
+}
+.trash-list article > div:first-child { display: grid; gap: 4px; }
+.trash-list span { color: #687871; font-size: .85rem; }
 .admin-card.admin-active {
   border-color: rgba(46,128,108,.35);
   background: rgba(229,244,237,.8);
@@ -352,6 +371,7 @@ footer { margin-top: 48px; color: #78847e; font-size: .85rem; }
   .schedule-time-fields { grid-template-columns: 1fr; }
   .schedule-list article > div { grid-template-columns: 1fr; }
   .schedule-list time { grid-row: auto; }
+  .trash-list article { align-items: stretch; flex-direction: column; }
   .setup-layout { grid-template-columns: 1fr; }
   .setup-intro { position: static; margin-bottom: 0; }
 }

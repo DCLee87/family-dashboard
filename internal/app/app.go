@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/DCLee87/family-dashboard/internal/database"
@@ -35,6 +36,8 @@ type App struct {
 	db         *database.Database
 	logger     *slog.Logger
 	pushClient webpush.HTTPClient
+	workerStop context.CancelFunc
+	workerWG   sync.WaitGroup
 }
 
 func New(config Config, logger *slog.Logger) (*App, error) {
@@ -53,6 +56,12 @@ func New(config Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	if purged, err := db.PurgeExpiredTrashedSchedules(context.Background(), time.Now().UTC()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("purge expired schedule trash: %w", err)
+	} else if purged > 0 {
+		logger.Info("expired trashed schedules purged", "count", purged)
+	}
 	application := &App{
 		config: config, db: db, logger: logger, pushClient: http.DefaultClient,
 	}
@@ -61,6 +70,7 @@ func New(config Config, logger *slog.Logger) (*App, error) {
 			db.Close()
 			return nil, err
 		}
+		application.startBackgroundWorkers()
 	}
 	return application, nil
 }
@@ -90,11 +100,17 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/family-members", a.listFamilyMembers)
 	mux.HandleFunc("POST /api/v1/schedules", a.createSchedule)
 	mux.HandleFunc("PUT /api/v1/schedules/{id}", a.updateSchedule)
+	mux.HandleFunc("DELETE /api/v1/schedules/{id}", a.deleteSchedule)
 	mux.HandleFunc("GET /api/v1/schedules/{id}", a.getSchedule)
+	mux.HandleFunc("GET /api/v1/schedules/{id}/notification", a.getScheduleNotificationSetting)
+	mux.HandleFunc("PUT /api/v1/schedules/{id}/notification", a.updateScheduleNotificationSetting)
 	mux.HandleFunc("PUT /api/v1/schedules/{id}/occurrences/{key}", a.updateScheduleOccurrence)
 	mux.HandleFunc("POST /api/v1/schedules/{id}/occurrences/{key}/cancel", a.cancelScheduleOccurrence)
 	mux.HandleFunc("GET /api/v1/schedule-occurrences", a.listScheduleOccurrences)
 	mux.HandleFunc("GET /api/v1/family-status", a.familyStatus)
+	mux.HandleFunc("GET /api/admin/schedule-trash", a.listScheduleTrash)
+	mux.HandleFunc("POST /api/admin/schedule-trash/{id}/restore", a.restoreSchedule)
+	mux.HandleFunc("DELETE /api/admin/schedule-trash/{id}", a.permanentlyDeleteSchedule)
 
 	dist, err := fs.Sub(webui.Files, "dist")
 	if err != nil {
@@ -164,6 +180,10 @@ func (a *App) CheckDatabase(ctx context.Context) error {
 }
 
 func (a *App) Close() error {
+	if a.workerStop != nil {
+		a.workerStop()
+		a.workerWG.Wait()
+	}
 	return a.db.Close()
 }
 

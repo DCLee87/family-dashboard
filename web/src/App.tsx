@@ -56,6 +56,8 @@ export default function App() {
   const [health, setHealth] = useState<Health>(initialHealth);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [lastSuccessfulAt, setLastSuccessfulAt] = useState<Date | null>(null);
+  const [online, setOnline] = useState(navigator.onLine);
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
   const [deviceAuth, setDeviceAuth] = useState<DeviceAuth | null>(null);
 
@@ -75,6 +77,7 @@ export default function App() {
       const setup = await setupResponse.json() as { setupRequired: boolean };
       setSetupRequired(setup.setupRequired);
       setDeviceAuth(deviceResponse.ok ? await deviceResponse.json() : null);
+      setLastSuccessfulAt(new Date());
     } catch {
       setHealth({ status: "error", database: "error" });
       setRuntime(null);
@@ -87,6 +90,25 @@ export default function App() {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setOnline(true);
+      void refresh();
+    };
+    const handleOffline = () => setOnline(false);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [refresh]);
 
   if (window.location.pathname === "/enroll") {
@@ -111,11 +133,11 @@ export default function App() {
         <p className="subtitle">등록된 가족 기기에서 오늘의 일정과 NAS 서비스 상태를 함께 확인합니다.</p>
       </header>
 
-      <section className={`status-card ${healthy ? "healthy" : "unhealthy"}`}>
+      <section className={`status-card ${healthy && online ? "healthy" : "unhealthy"}`}>
         <div>
           <span className="status-dot" aria-hidden="true" />
           <p className="label">서비스 상태</p>
-          <strong>{health.status === "loading" ? "확인 중" : healthy ? "정상" : "연결 필요"}</strong>
+          <strong>{!online ? "오프라인" : health.status === "loading" ? "확인 중" : healthy ? "정상" : "연결 필요"}</strong>
         </div>
         <button type="button" onClick={() => void refresh()}>지금 확인</button>
       </section>
@@ -144,7 +166,9 @@ export default function App() {
       <ScheduleBoard auth={deviceAuth} />
 
       <footer>
-        마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"} · 30초마다 자동 갱신
+        마지막 확인 {checkedAt ? checkedAt.toLocaleTimeString("ko-KR") : "대기 중"}
+        {lastSuccessfulAt && !healthy ? ` · 마지막 정상 연결 ${lastSuccessfulAt.toLocaleTimeString("ko-KR")}` : ""}
+        {` · ${online ? "30초마다 자동 갱신" : "연결 복구 시 자동 재시도"}`}
       </footer>
     </main>
   );
@@ -176,6 +200,12 @@ type ScheduleOccurrence = {
   endDate?: string;
 };
 
+type ScheduleTrashEntry = {
+  schedule: ScheduleOccurrence;
+  deletedAt: string;
+  restoreUntil: string;
+};
+
 type FamilyStatusItem = {
   member: FamilyMember;
   status: ScheduleOccurrence | null;
@@ -199,6 +229,9 @@ type ScheduleForm = {
   allDay: boolean;
   startDate: string;
   endDate: string;
+  notificationEnabled: boolean;
+  timedLeadMinutes: number;
+  allDayHour: number;
 };
 
 function emptyScheduleForm(): ScheduleForm {
@@ -213,6 +246,7 @@ function emptyScheduleForm(): ScheduleForm {
     weekdays: [start.getDay()], recurrenceEndsOn: "",
     occurrenceKey: "", occurrenceVersion: 0,
     allDay: false, startDate: today, endDate: today,
+    notificationEnabled: true, timedLeadMinutes: 30, allDayHour: 20,
   };
 }
 
@@ -225,6 +259,8 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [trash, setTrash] = useState<ScheduleTrashEntry[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
 
   const refreshSchedules = useCallback(async () => {
     if (!auth) {
@@ -258,9 +294,25 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
     }
   }, [auth]);
 
+  const refreshTrash = useCallback(async () => {
+    if (!auth?.permissions.admin) {
+      setTrash([]);
+      setShowTrash(false);
+      return;
+    }
+    const response = await fetch("/api/admin/schedule-trash", { cache: "no-store" });
+    if (!response.ok) return;
+    const result = await response.json() as { schedules: ScheduleTrashEntry[] };
+    setTrash(result.schedules);
+  }, [auth]);
+
   useEffect(() => {
     void refreshSchedules();
   }, [refreshSchedules]);
+
+  useEffect(() => {
+    void refreshTrash();
+  }, [refreshTrash]);
 
   if (!auth) return null;
 
@@ -298,8 +350,24 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       allDay: item.timeKind === "all_day",
       startDate: item.startDate ?? "",
       endDate: item.endDate ?? "",
+      notificationEnabled: true,
+      timedLeadMinutes: 30,
+      allDayHour: 20,
     });
     setShowForm(true);
+    void fetch(`/api/v1/schedules/${encodeURIComponent(item.id)}/notification`, { cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as {
+        enabled: boolean; timedLeadMinutes: number; allDayHour: number;
+      } : null)
+      .then((setting) => {
+        if (!setting) return;
+        setForm((current) => current.id === item.id ? {
+          ...current,
+          notificationEnabled: setting.enabled,
+          timedLeadMinutes: setting.timedLeadMinutes,
+          allDayHour: setting.allDayHour,
+        } : current);
+      });
   }
 
   async function save(confirmOverlap = false) {
@@ -341,7 +409,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
           } : undefined,
         }),
       });
-      const result = await response.json() as { code?: string; message?: string };
+      const result = await response.json() as { id?: string; code?: string; message?: string };
       if (response.status === 409 && result.code === "overlap_warning" && !confirmOverlap) {
         if (window.confirm("같은 가족에게 겹치는 일정이 있습니다. 그래도 저장할까요?")) {
           await save(true);
@@ -349,6 +417,22 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
         return;
       }
       if (!response.ok) throw new Error(result.message ?? "일정을 저장하지 못했습니다.");
+      const scheduleID = result.id ?? form.id;
+      if (scheduleID) {
+        const notificationResponse = await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleID)}/notification`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+          },
+          body: JSON.stringify({
+            enabled: form.notificationEnabled,
+            timedLeadMinutes: form.timedLeadMinutes,
+            allDayHour: form.allDayHour,
+          }),
+        });
+        if (!notificationResponse.ok) throw new Error("일정은 저장됐지만 알림 설정을 저장하지 못했습니다.");
+      }
       setForm(emptyScheduleForm());
       setShowForm(false);
       await refreshSchedules();
@@ -361,7 +445,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
 
   async function cancelOccurrence() {
     if (!form.id || !form.occurrenceKey) return;
-    if (!window.confirm("이 반복 일정의 이번 회차만 취소할까요?")) return;
+    if (!window.confirm("이 반복 일정의 이번 회차만 삭제할까요?")) return;
     setBusy(true);
     setError("");
     try {
@@ -378,13 +462,93 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       );
       if (!response.ok) {
         const result = await response.json() as { message?: string };
-        throw new Error(result.message ?? "이번 회차를 취소하지 못했습니다.");
+        throw new Error(result.message ?? "이번 회차를 삭제하지 못했습니다.");
       }
       setForm(emptyScheduleForm());
       setShowForm(false);
       await refreshSchedules();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "이번 회차를 취소하지 못했습니다.");
+      setError(caught instanceof Error ? caught.message : "이번 회차를 삭제하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteWholeSchedule() {
+    if (!form.id || form.version < 1) return;
+    const message = form.occurrenceKey
+      ? "이 반복 일정 전체를 휴지통으로 이동할까요? 모든 회차가 일정 화면에서 사라집니다."
+      : "이 일정을 휴지통으로 이동할까요?";
+    if (!window.confirm(message)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/schedules/${encodeURIComponent(form.id)}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+        },
+        body: JSON.stringify({ version: form.version }),
+      });
+      if (!response.ok) {
+        const result = await response.json() as { message?: string };
+        throw new Error(result.message ?? "일정을 삭제하지 못했습니다.");
+      }
+      setForm(emptyScheduleForm());
+      setShowForm(false);
+      await Promise.all([refreshSchedules(), refreshTrash()]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "일정을 삭제하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreTrashedSchedule(entry: ScheduleTrashEntry) {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/schedule-trash/${encodeURIComponent(entry.schedule.id!)}/restore`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+        },
+        body: JSON.stringify({ version: entry.schedule.version }),
+      });
+      if (!response.ok) {
+        const result = await response.json() as { message?: string };
+        throw new Error(result.message ?? "일정을 복원하지 못했습니다.");
+      }
+      await Promise.all([refreshSchedules(), refreshTrash()]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "일정을 복원하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function permanentlyDeleteTrashedSchedule(entry: ScheduleTrashEntry) {
+    if (!window.confirm(`‘${entry.schedule.title}’ 일정을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/schedule-trash/${encodeURIComponent(entry.schedule.id!)}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+        },
+        body: JSON.stringify({ version: entry.schedule.version }),
+      });
+      if (!response.ok) {
+        const result = await response.json() as { message?: string };
+        throw new Error(result.message ?? "일정을 영구 삭제하지 못했습니다.");
+      }
+      await refreshTrash();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "일정을 영구 삭제하지 못했습니다.");
     } finally {
       setBusy(false);
     }
@@ -482,6 +646,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                   onToggleParticipant={toggleParticipant}
                   onSave={() => void save()}
                   onCancelOccurrence={form.occurrenceKey ? () => void cancelOccurrence() : undefined}
+                  onDeleteSchedule={() => void deleteWholeSchedule()}
                   onCancel={() => {
                     setForm(emptyScheduleForm());
                     setShowForm(false);
@@ -513,6 +678,37 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
           </p>
         )}
       </div>
+      {auth.permissions.admin && (
+        <div className="schedule-trash">
+          <div className="management-heading">
+            <div>
+              <p className="label">일정 휴지통</p>
+              <strong>{trash.length === 0 ? "비어 있음" : `${trash.length}개 일정`}</strong>
+            </div>
+            <button type="button" className="secondary" onClick={() => setShowTrash((current) => !current)}>
+              {showTrash ? "휴지통 닫기" : "휴지통 보기"}
+            </button>
+          </div>
+          {showTrash && (
+            <div className="trash-list">
+              {trash.map((entry) => (
+                <article key={entry.schedule.id}>
+                  <div>
+                    <strong>{entry.schedule.title}</strong>
+                    <span>삭제 {new Date(entry.deletedAt).toLocaleString("ko-KR")}</span>
+                    <span>복원 가능 {new Date(entry.restoreUntil).toLocaleDateString("ko-KR")}까지</span>
+                  </div>
+                  <div className="button-row">
+                    <button type="button" className="secondary" disabled={busy} onClick={() => void restoreTrashedSchedule(entry)}>복원</button>
+                    <button type="button" className="danger" disabled={busy} onClick={() => void permanentlyDeleteTrashedSchedule(entry)}>영구 삭제</button>
+                  </div>
+                </article>
+              ))}
+              {trash.length === 0 && <p className="schedule-empty">휴지통에 일정이 없습니다.</p>}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -526,6 +722,7 @@ function ScheduleEditor({
   onSave,
   onCancel,
   onCancelOccurrence,
+  onDeleteSchedule,
 }: {
   form: ScheduleForm;
   members: FamilyMember[];
@@ -535,6 +732,7 @@ function ScheduleEditor({
   onSave: () => void;
   onCancel: () => void;
   onCancelOccurrence?: () => void;
+  onDeleteSchedule?: () => void;
 }) {
   return (
     <form className="schedule-form" onSubmit={(event) => {
@@ -642,10 +840,51 @@ function ScheduleEditor({
           ))}
         </div>
       </fieldset>
+      <fieldset>
+        <legend>{form.occurrenceKey ? "전체 반복 알림" : "일정 알림"}</legend>
+        <label className="recurrence-toggle">
+          <input
+            type="checkbox"
+            checked={form.notificationEnabled}
+            onChange={(event) => onChange({ ...form, notificationEnabled: event.target.checked })}
+          />
+          <span>부모 모바일 알림 사용</span>
+        </label>
+        {form.notificationEnabled && (
+          <div className="notification-setting-fields">
+            {form.allDay ? (
+              <label>
+                <span>전날 알림 시각</span>
+                <select value={form.allDayHour} onChange={(event) => onChange({ ...form, allDayHour: Number(event.target.value) })}>
+                  {Array.from({ length: 24 }, (_, hour) => (
+                    <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>
+                <span>시작 전 알림</span>
+                <select value={form.timedLeadMinutes} onChange={(event) => onChange({ ...form, timedLeadMinutes: Number(event.target.value) })}>
+                  <option value={0}>시작 시각</option>
+                  <option value={10}>10분 전</option>
+                  <option value={30}>30분 전</option>
+                  <option value={60}>1시간 전</option>
+                  <option value={1440}>하루 전</option>
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+      </fieldset>
       <div className="button-row">
         <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.occurrenceKey ? "이번 회차 저장" : form.id ? "일정 수정" : "일정 저장"}</button>
         {onCancelOccurrence && (
-          <button type="button" className="danger" disabled={busy} onClick={onCancelOccurrence}>이번 회차 취소</button>
+          <button type="button" className="danger" disabled={busy} onClick={onCancelOccurrence}>이번 회차 삭제</button>
+        )}
+        {onDeleteSchedule && (
+          <button type="button" className="danger" disabled={busy} onClick={onDeleteSchedule}>
+            {form.occurrenceKey ? "전체 반복 삭제" : "일정 삭제"}
+          </button>
         )}
         <button type="button" className="secondary" disabled={busy} onClick={onCancel}>취소</button>
       </div>

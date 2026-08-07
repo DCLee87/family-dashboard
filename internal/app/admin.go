@@ -278,6 +278,25 @@ func (a *App) requireContentAdmin(
 	return device, true
 }
 
+func (a *App) requireContentAdminRead(
+	w http.ResponseWriter,
+	r *http.Request,
+) (database.Device, bool) {
+	device, ok := a.authenticatedDevice(w, r)
+	if !ok {
+		return database.Device{}, false
+	}
+	if device.Type == "tv" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden"})
+		return database.Device{}, false
+	}
+	if !a.adminSessionActive(r, device.ID) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"status": "admin_required"})
+		return database.Device{}, false
+	}
+	return device, true
+}
+
 func adminSessionCookie(r *http.Request) (*http.Cookie, [32]byte, bool) {
 	cookie, err := r.Cookie("family_dashboard_admin")
 	if err != nil || cookie.Value == "" {

@@ -314,7 +314,10 @@ func (d *Database) SaveWeeklyRule(ctx context.Context, rule scheduledomain.Weekl
 
 func (d *Database) WeeklyRules(ctx context.Context) ([]scheduledomain.WeeklyRule, error) {
 	rows, err := d.db.QueryContext(ctx, `SELECT r.schedule_id, r.starts_on, r.ends_on, r.start_minute, r.end_minute
-		FROM schedule_recurrence_rules r ORDER BY r.schedule_id`)
+		FROM schedule_recurrence_rules r
+		JOIN schedules s ON s.id = r.schedule_id
+		WHERE s.deleted_at IS NULL
+		ORDER BY r.schedule_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list weekly rules: %w", err)
 	}
