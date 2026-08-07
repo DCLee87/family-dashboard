@@ -249,6 +249,8 @@ button.filter-active { background: #2e806c; }
 .participant-options { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
 .participant-options label { display: flex; align-items: center; gap: 7px; }
 .participant-options input { width: auto; }
+.recurrence-toggle { display: flex; align-items: center; gap: 8px; }
+.schedule-form .recurrence-toggle input { width: auto; }
 .schedule-form .button-row { grid-column: 1 / -1; }
 .schedule-list { display: grid; }
 .schedule-list article { padding: 16px 0; border-top: 1px solid rgba(22,48,45,.1); }
@@ -260,6 +262,7 @@ button.filter-active { background: #2e806c; }
 .schedule-list span { color: #687871; font-size: .9rem; }
 .schedule-summary { opacity: .82; }
 .overlap-badge { width: fit-content; padding: 3px 8px; border-radius: 999px; color: #8b3427 !important; background: rgba(196,91,70,.12); }
+.recurrence-badge { width: fit-content; padding: 3px 8px; border-radius: 999px; color: #276859 !important; background: rgba(46,128,108,.12); }
 .schedule-empty { margin: 0; padding: 22px 0 8px; color: #78847e; text-align: center; }
 .admin-card.admin-active {
   border-color: rgba(46,128,108,.35);

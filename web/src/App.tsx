@@ -106,7 +106,7 @@ export default function App() {
   return (
     <main>
       <header>
-        <p className="eyebrow">C1 · FAMILY SCHEDULE</p>
+        <p className="eyebrow">{(runtime?.version || "FAMILY").toUpperCase()} · FAMILY SCHEDULE</p>
         <h1>우리 가족 대시보드</h1>
         <p className="subtitle">등록된 가족 기기에서 오늘의 일정과 NAS 서비스 상태를 함께 확인합니다.</p>
       </header>
@@ -162,12 +162,18 @@ type ScheduleOccurrence = {
   locationName?: string;
   notes?: string;
   visibility?: string;
-  startsAt: string;
-  endsAt: string;
+  startsAt?: string;
+  endsAt?: string;
   participants?: string[];
   version?: number;
   summary?: boolean;
   overlap?: boolean;
+  occurrenceKey?: string;
+  recurring?: boolean;
+  occurrenceVersion?: number;
+  timeKind?: string;
+  startDate?: string;
+  endDate?: string;
 };
 
 type FamilyStatusItem = {
@@ -185,16 +191,28 @@ type ScheduleForm = {
   endsAt: string;
   participants: string[];
   version: number;
+  weeklyRepeat: boolean;
+  weekdays: number[];
+  recurrenceEndsOn: string;
+  occurrenceKey: string;
+  occurrenceVersion: number;
+  allDay: boolean;
+  startDate: string;
+  endDate: string;
 };
 
 function emptyScheduleForm(): ScheduleForm {
   const start = new Date();
   start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30, 0, 0);
   const end = new Date(start.getTime() + 60 * 60 * 1000);
+	const today = toLocalInput(start).slice(0, 10);
   return {
     id: "", title: "", locationName: "", visibility: "family",
     startsAt: toLocalInput(start), endsAt: toLocalInput(end),
-    participants: [], version: 0,
+    participants: [], version: 0, weeklyRepeat: false,
+    weekdays: [start.getDay()], recurrenceEndsOn: "",
+    occurrenceKey: "", occurrenceVersion: 0,
+    allDay: false, startDate: today, endDate: today,
   };
 }
 
@@ -261,15 +279,25 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
 
   function editSchedule(item: ScheduleOccurrence) {
     if (!item.id) return;
+    const fallbackStart = new Date();
+    const fallbackEnd = new Date(fallbackStart.getTime() + 60 * 60 * 1000);
     setForm({
       id: item.id,
       title: item.title,
       locationName: item.locationName ?? "",
       visibility: item.visibility ?? "family",
-      startsAt: toLocalInput(new Date(item.startsAt)),
-      endsAt: toLocalInput(new Date(item.endsAt)),
+      startsAt: toLocalInput(item.startsAt ? new Date(item.startsAt) : fallbackStart),
+      endsAt: toLocalInput(item.endsAt ? new Date(item.endsAt) : fallbackEnd),
       participants: item.participants ?? [],
       version: item.version ?? 1,
+      weeklyRepeat: false,
+      weekdays: [(item.startsAt ? new Date(item.startsAt) : fallbackStart).getDay()],
+      recurrenceEndsOn: "",
+      occurrenceKey: item.occurrenceKey ?? "",
+      occurrenceVersion: item.occurrenceVersion ?? 0,
+      allDay: item.timeKind === "all_day",
+      startDate: item.startDate ?? "",
+      endDate: item.endDate ?? "",
     });
     setShowForm(true);
   }
@@ -280,8 +308,13 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
     try {
       if (!form.title.trim()) throw new Error("일정 제목을 입력하세요.");
       if (form.participants.length === 0) throw new Error("대상 가족을 한 명 이상 선택하세요.");
+      if (!form.id && form.weeklyRepeat && form.weekdays.length === 0) throw new Error("반복 요일을 한 개 이상 선택하세요.");
       const method = form.id ? "PUT" : "POST";
-      const target = form.id ? `/api/v1/schedules/${encodeURIComponent(form.id)}` : "/api/v1/schedules";
+      const target = form.id
+        ? form.occurrenceKey
+          ? `/api/v1/schedules/${encodeURIComponent(form.id)}/occurrences/${encodeURIComponent(form.occurrenceKey)}`
+          : `/api/v1/schedules/${encodeURIComponent(form.id)}`
+        : "/api/v1/schedules";
       const response = await fetch(target, {
         method,
         headers: {
@@ -294,9 +327,18 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
           visibility: form.visibility,
           startsAt: new Date(form.startsAt).toISOString(),
           endsAt: new Date(form.endsAt).toISOString(),
+          timeKind: form.allDay ? "all_day" : "timed",
+          startDate: form.allDay ? form.startDate : undefined,
+          endDate: form.allDay ? form.endDate : undefined,
           participants: form.participants,
           version: form.version,
+          occurrenceVersion: form.occurrenceVersion,
           confirmOverlap,
+          recurrence: !form.id && form.weeklyRepeat ? {
+            kind: "weekly",
+            weekdays: form.weekdays,
+            endsOn: form.recurrenceEndsOn || undefined,
+          } : undefined,
         }),
       });
       const result = await response.json() as { code?: string; message?: string };
@@ -312,6 +354,37 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       await refreshSchedules();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "일정을 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelOccurrence() {
+    if (!form.id || !form.occurrenceKey) return;
+    if (!window.confirm("이 반복 일정의 이번 회차만 취소할까요?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/v1/schedules/${encodeURIComponent(form.id)}/occurrences/${encodeURIComponent(form.occurrenceKey)}/cancel`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": readCookie("family_dashboard_csrf"),
+          },
+          body: JSON.stringify({ occurrenceVersion: form.occurrenceVersion }),
+        },
+      );
+      if (!response.ok) {
+        const result = await response.json() as { message?: string };
+        throw new Error(result.message ?? "이번 회차를 취소하지 못했습니다.");
+      }
+      setForm(emptyScheduleForm());
+      setShowForm(false);
+      await refreshSchedules();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "이번 회차를 취소하지 못했습니다.");
     } finally {
       setBusy(false);
     }
@@ -395,8 +468,10 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
       {error && <p className="form-error">{error}</p>}
       <div className="schedule-list">
         {filteredOccurrences.map((item, index) => {
-          const key = item.id ?? `${item.startsAt}-${index}`;
-          if (item.id && item.id === form.id && auth.permissions.admin) {
+          const key = item.occurrenceKey ? `${item.id}-${item.occurrenceKey}` : item.id ?? `${item.startsAt}-${index}`;
+          if (item.id && item.id === form.id &&
+            (form.occurrenceKey ? item.occurrenceKey === form.occurrenceKey : !item.occurrenceKey) &&
+            auth.permissions.admin) {
             return (
               <article key={key} className="schedule-editor-row">
                 <ScheduleEditor
@@ -406,6 +481,7 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
                   onChange={setForm}
                   onToggleParticipant={toggleParticipant}
                   onSave={() => void save()}
+                  onCancelOccurrence={form.occurrenceKey ? () => void cancelOccurrence() : undefined}
                   onCancel={() => {
                     setForm(emptyScheduleForm());
                     setShowForm(false);
@@ -417,13 +493,16 @@ function ScheduleBoard({ auth }: { auth: DeviceAuth | null }) {
           return (
             <article key={key} className={item.summary ? "schedule-summary" : ""}>
               <div>
-                <time>{formatScheduleTime(item.startsAt, item.endsAt)}</time>
+                <time>{item.timeKind === "all_day" ? formatAllDay(item.startDate, item.endDate) : formatScheduleTime(item.startsAt!, item.endsAt!)}</time>
                 <strong>{item.title}</strong>
+                {item.recurring && <span className="recurrence-badge">매주 반복</span>}
                 {item.locationName && <span>{item.locationName}</span>}
                 {item.overlap && <span className="overlap-badge">일정 겹침</span>}
               </div>
               {auth.permissions.admin && item.id && (
-                <button type="button" className="secondary" onClick={() => editSchedule(item)}>수정</button>
+                <button type="button" className="secondary" onClick={() => editSchedule(item)}>
+                  {item.recurring ? "이번 회차 수정" : "수정"}
+                </button>
               )}
             </article>
           );
@@ -446,6 +525,7 @@ function ScheduleEditor({
   onToggleParticipant,
   onSave,
   onCancel,
+  onCancelOccurrence,
 }: {
   form: ScheduleForm;
   members: FamilyMember[];
@@ -454,6 +534,7 @@ function ScheduleEditor({
   onToggleParticipant: (id: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  onCancelOccurrence?: () => void;
 }) {
   return (
     <form className="schedule-form" onSubmit={(event) => {
@@ -468,7 +549,24 @@ function ScheduleEditor({
         <span>장소</span>
         <input value={form.locationName} maxLength={200} onChange={(event) => onChange({ ...form, locationName: event.target.value })} />
       </label>
-      <div className="schedule-time-fields">
+      {!form.id && (
+        <label className="recurrence-toggle">
+          <input type="checkbox" checked={form.allDay} onChange={(event) => onChange({ ...form, allDay: event.target.checked })} />
+          <span>종일 일정</span>
+        </label>
+      )}
+      {form.allDay ? (
+        <div className="schedule-time-fields">
+          <label>
+            <span>시작일</span>
+            <input type="date" value={form.startDate} onChange={(event) => onChange({ ...form, startDate: event.target.value })} />
+          </label>
+          <label>
+            <span>종료일 (포함)</span>
+            <input type="date" min={form.startDate} value={form.endDate} onChange={(event) => onChange({ ...form, endDate: event.target.value })} />
+          </label>
+        </div>
+      ) : <div className="schedule-time-fields">
         <label>
           <span>시작</span>
           <input type="datetime-local" value={form.startsAt} onChange={(event) => onChange({ ...form, startsAt: event.target.value })} />
@@ -477,7 +575,50 @@ function ScheduleEditor({
           <span>종료</span>
           <input type="datetime-local" value={form.endsAt} onChange={(event) => onChange({ ...form, endsAt: event.target.value })} />
         </label>
-      </div>
+      </div>}
+      {!form.id && (
+        <fieldset>
+          <legend>반복</legend>
+          <label className="recurrence-toggle">
+            <input
+              type="checkbox"
+              checked={form.weeklyRepeat}
+              onChange={(event) => onChange({ ...form, weeklyRepeat: event.target.checked })}
+            />
+            <span>매주 반복</span>
+          </label>
+          {form.weeklyRepeat && (
+            <>
+              <div className="participant-options" aria-label="반복 요일">
+                {[[0, "일"], [1, "월"], [2, "화"], [3, "수"], [4, "목"], [5, "금"], [6, "토"]].map(([day, label]) => (
+                  <label key={day}>
+                    <input
+                      type="checkbox"
+                      checked={form.weekdays.includes(day as number)}
+                      onChange={() => onChange({
+                        ...form,
+                        weekdays: form.weekdays.includes(day as number)
+                          ? form.weekdays.filter((value) => value !== day)
+                          : [...form.weekdays, day as number],
+                      })}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <label>
+                <span>반복 종료일 (선택)</span>
+                <input
+                  type="date"
+                  value={form.recurrenceEndsOn}
+                  min={form.allDay ? form.startDate : form.startsAt.slice(0, 10)}
+                  onChange={(event) => onChange({ ...form, recurrenceEndsOn: event.target.value })}
+                />
+              </label>
+            </>
+          )}
+        </fieldset>
+      )}
       <label>
         <span>공개 범위</span>
         <select value={form.visibility} onChange={(event) => onChange({ ...form, visibility: event.target.value })}>
@@ -502,7 +643,10 @@ function ScheduleEditor({
         </div>
       </fieldset>
       <div className="button-row">
-        <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.id ? "일정 수정" : "일정 저장"}</button>
+        <button type="submit" disabled={busy}>{busy ? "저장 중…" : form.occurrenceKey ? "이번 회차 저장" : form.id ? "일정 수정" : "일정 저장"}</button>
+        {onCancelOccurrence && (
+          <button type="button" className="danger" disabled={busy} onClick={onCancelOccurrence}>이번 회차 취소</button>
+        )}
         <button type="button" className="secondary" disabled={busy} onClick={onCancel}>취소</button>
       </div>
     </form>
@@ -517,6 +661,11 @@ function toLocalInput(value: Date): string {
 function formatScheduleTime(startsAt: string, endsAt: string): string {
   const format = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
   return `${format.format(new Date(startsAt))}–${format.format(new Date(endsAt))}`;
+}
+
+function formatAllDay(startDate?: string, endDate?: string): string {
+  if (!startDate || !endDate || startDate === endDate) return "종일";
+  return `종일 · ${startDate.slice(5)}–${endDate.slice(5)}`;
 }
 
 function formatStatusEnd(endsAt: string): string {

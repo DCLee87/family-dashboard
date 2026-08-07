@@ -38,6 +38,9 @@ type App struct {
 }
 
 func New(config Config, logger *slog.Logger) (*App, error) {
+	if _, err := time.LoadLocation("Asia/Seoul"); err != nil {
+		return nil, fmt.Errorf("load family timezone: %w", err)
+	}
 	if (config.VAPIDPublicKey == "") != (config.VAPIDPrivateKey == "") {
 		return nil, fmt.Errorf("configure VAPID keys: %w", security.ErrInvalidVAPIDKeys)
 	}
@@ -88,6 +91,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/schedules", a.createSchedule)
 	mux.HandleFunc("PUT /api/v1/schedules/{id}", a.updateSchedule)
 	mux.HandleFunc("GET /api/v1/schedules/{id}", a.getSchedule)
+	mux.HandleFunc("PUT /api/v1/schedules/{id}/occurrences/{key}", a.updateScheduleOccurrence)
+	mux.HandleFunc("POST /api/v1/schedules/{id}/occurrences/{key}/cancel", a.cancelScheduleOccurrence)
 	mux.HandleFunc("GET /api/v1/schedule-occurrences", a.listScheduleOccurrences)
 	mux.HandleFunc("GET /api/v1/family-status", a.familyStatus)
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/DCLee87/family-dashboard/internal/app"
 	"github.com/DCLee87/family-dashboard/internal/security"

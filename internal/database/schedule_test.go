@@ -15,7 +15,7 @@ func TestScheduleRepositoryCreateListOverlapAndUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.db.Exec(`
 		INSERT INTO devices(id, name, device_type, local_only)
 		VALUES
@@ -109,5 +109,131 @@ func TestScheduleRepositoryRejectsUnknownParticipantAtomically(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatal("failed schedule creation left a partial schedule")
+	}
+}
+
+func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	db, err := Open(dataDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.db.Exec(`INSERT INTO devices(id, name, device_type, local_only) VALUES ('pc', 'Home PC', 'trusted_pc', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	location, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startsOn := time.Date(2026, 8, 3, 0, 0, 0, 0, location)
+	endsOn := time.Date(2026, 8, 10, 0, 0, 0, 0, location)
+	item := scheduledomain.Item{
+		ID: "weekly-school", Title: "등교", Visibility: scheduledomain.VisibilityFamily,
+		StartsAt:     time.Date(2026, 8, 3, 9, 0, 0, 0, location).UTC(),
+		EndsAt:       time.Date(2026, 8, 3, 10, 0, 0, 0, location).UTC(),
+		Participants: []string{"daughter"},
+	}
+	created, err := db.CreateWeeklySchedule(ctx, scheduledomain.WeeklyRule{
+		Item: item, StartsOn: startsOn, EndsOn: &endsOn,
+		Weekdays: []time.Weekday{time.Monday, time.Wednesday}, StartMinute: 9 * 60, EndMinute: 10 * 60,
+	}, "pc", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Version != 1 {
+		t.Fatalf("unexpected version: %d", created.Version)
+	}
+	items, err := db.SchedulesBetween(ctx, startsOn.UTC(), endsOn.AddDate(0, 0, 1).UTC(), "daughter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("got %d occurrences, want 3: %#v", len(items), items)
+	}
+	for _, occurrence := range items {
+		if occurrence.ID != item.ID || occurrence.OccurrenceKey == "" {
+			t.Fatalf("unexpected occurrence: %#v", occurrence)
+		}
+	}
+	override := item
+	override.Title = "특별 등교"
+	override.StartsAt = time.Date(2026, 8, 5, 11, 0, 0, 0, location).UTC()
+	override.EndsAt = time.Date(2026, 8, 5, 12, 0, 0, 0, location).UTC()
+	version, err := db.SaveOccurrenceException(ctx, item.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: "2026-08-05T09:00", Override: &override,
+	}, 0, time.Now().UTC())
+	if err != nil || version != 1 {
+		t.Fatalf("save override: version=%d error=%v", version, err)
+	}
+	if _, err := db.SaveOccurrenceException(ctx, item.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: "2026-08-05T09:00", Override: &override,
+	}, 0, time.Now().UTC()); !errors.Is(err, ErrOccurrenceConflict) {
+		t.Fatalf("stale occurrence update: got %v, want %v", err, ErrOccurrenceConflict)
+	}
+	if _, err := db.SaveOccurrenceException(ctx, item.ID, scheduledomain.OccurrenceException{
+		OccurrenceKey: "2026-08-10T09:00", Cancelled: true,
+	}, 0, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(dataDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = db.SchedulesBetween(ctx, startsOn.UTC(), endsOn.AddDate(0, 0, 1).UTC(), "daughter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d final occurrences after exceptions, want 2: %#v", len(items), items)
+	}
+	if items[1].Title != "특별 등교" || items[1].OccurrenceKey != "2026-08-05T09:00" ||
+		items[1].OccurrenceVersion != 1 || items[1].StartsAt.Hour() != 2 {
+		t.Fatalf("override was not persisted with stable key: %#v", items[1])
+	}
+}
+
+func TestAllDayScheduleAppearsOnEveryIncludedDate(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.db.Exec(`INSERT INTO devices(id, name, device_type, local_only) VALUES ('pc', 'Home PC', 'trusted_pc', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	location, _ := time.LoadLocation("Asia/Seoul")
+	item := scheduledomain.Item{
+		ID: "trip", Title: "가족여행", Visibility: scheduledomain.VisibilityFamily,
+		TimeKind: scheduledomain.TimeKindAllDay, StartDate: "2026-08-10", EndDate: "2026-08-12",
+		StartsAt:     time.Date(2026, 8, 10, 0, 0, 0, 0, location).UTC(),
+		EndsAt:       time.Date(2026, 8, 13, 0, 0, 0, 0, location).UTC(),
+		Participants: []string{"dad"},
+	}
+	created, err := db.CreateAllDaySchedule(ctx, item, "pc", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for day := 10; day <= 12; day++ {
+		from := time.Date(2026, 8, day, 0, 0, 0, 0, location)
+		items, err := db.SchedulesBetween(ctx, from.UTC(), from.AddDate(0, 0, 1).UTC(), "dad")
+		if err != nil || len(items) != 1 || items[0].TimeKind != scheduledomain.TimeKindAllDay {
+			t.Fatalf("day %d: items=%#v error=%v", day, items, err)
+		}
+	}
+	created.StartDate, created.EndDate = "2026-08-11", "2026-08-13"
+	created.StartsAt = time.Date(2026, 8, 11, 0, 0, 0, 0, location).UTC()
+	created.EndsAt = time.Date(2026, 8, 14, 0, 0, 0, 0, location).UTC()
+	updated, err := db.UpdateAllDaySchedule(ctx, created, "pc", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != 2 || updated.StartDate != "2026-08-11" || updated.EndDate != "2026-08-13" {
+		t.Fatalf("unexpected all-day update: %#v", updated)
 	}
 }

@@ -112,8 +112,8 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("schema version: got %d, want 4", version)
+	if version != 7 {
+		t.Fatalf("schema version: got %d, want 7", version)
 	}
 
 	tables := []string{
@@ -129,6 +129,11 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 		"family_members",
 		"schedules",
 		"schedule_participants",
+		"schedule_recurrence_rules",
+		"schedule_recurrence_days",
+		"schedule_occurrence_exceptions",
+		"schedule_all_day_dates",
+		"schedule_occurrence_all_day_overrides",
 	}
 	for _, table := range tables {
 		var count int
@@ -200,8 +205,8 @@ func TestDatabaseMigratesE1Schema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("migrated schema version: got %d, want 4", version)
+	if version != 7 {
+		t.Fatalf("migrated schema version: got %d, want 7", version)
 	}
 }
 

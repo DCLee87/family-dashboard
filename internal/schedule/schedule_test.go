@@ -42,6 +42,29 @@ func TestValidateRequiresCoreFields(t *testing.T) {
 	}
 }
 
+func TestAllDayScheduleUsesInclusiveDatesWithoutActiveStatus(t *testing.T) {
+	item := Item{
+		ID: "trip", Title: "가족여행", LocationName: "제주",
+		Visibility: VisibilityFamily, TimeKind: TimeKindAllDay,
+		StartDate: "2026-08-10", EndDate: "2026-08-12", Participants: []string{"dad"},
+	}
+	if err := Validate(item); err != nil {
+		t.Fatal(err)
+	}
+	view, ok := Project(item, AudienceParent)
+	if !ok || view.TimeKind != TimeKindAllDay || view.StartDate != "2026-08-10" ||
+		view.EndDate != "2026-08-12" || view.StartsAt != nil || view.EndsAt != nil {
+		t.Fatalf("unexpected all-day projection: %#v", view)
+	}
+	if _, active := ActiveStatus([]Item{item}, "dad", time.Now(), AudienceParent); active {
+		t.Fatal("all-day schedule affected family status without an explicit status interval")
+	}
+	item.EndDate = "2026-08-09"
+	if !errors.Is(Validate(item), ErrInvalidTimeRange) {
+		t.Fatalf("invalid all-day range was accepted: %v", Validate(item))
+	}
+}
+
 func TestProjectionDoesNotLeakPrivateDetails(t *testing.T) {
 	item := Item{
 		ID: "secret", Title: "병원", LocationName: "비밀 장소", Notes: "비밀 메모",

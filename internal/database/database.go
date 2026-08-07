@@ -251,6 +251,68 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		 ON schedule_participants(family_member_id, schedule_id)`,
 		`INSERT INTO schema_migrations(version) VALUES (4)
 		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_recurrence_rules (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			recurrence_kind TEXT NOT NULL CHECK (recurrence_kind = 'weekly'),
+			starts_on TEXT NOT NULL,
+			ends_on TEXT,
+			start_minute INTEGER NOT NULL CHECK (start_minute BETWEEN 0 AND 1439),
+			end_minute INTEGER NOT NULL CHECK (end_minute BETWEEN 0 AND 1439),
+			timezone TEXT NOT NULL DEFAULT 'Asia/Seoul',
+			CHECK (ends_on IS NULL OR ends_on >= starts_on)
+		)`,
+		`CREATE TABLE IF NOT EXISTS schedule_recurrence_days (
+			schedule_id TEXT NOT NULL REFERENCES schedule_recurrence_rules(schedule_id) ON DELETE CASCADE,
+			weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+			PRIMARY KEY(schedule_id, weekday)
+		)`,
+		`CREATE TABLE IF NOT EXISTS schedule_occurrence_exceptions (
+			schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+			occurrence_key TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('cancelled', 'overridden')),
+			override_title TEXT,
+			override_location_name TEXT,
+			override_notes TEXT,
+			override_visibility TEXT CHECK (
+				override_visibility IN ('family', 'tv_summary', 'parents_only') OR override_visibility IS NULL
+			),
+			override_starts_at TEXT,
+			override_ends_at TEXT,
+			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			CHECK (
+				(status = 'cancelled' AND override_title IS NULL AND override_location_name IS NULL AND
+				 override_notes IS NULL AND override_visibility IS NULL AND override_starts_at IS NULL AND override_ends_at IS NULL)
+				OR
+				(status = 'overridden' AND override_starts_at IS NOT NULL AND override_ends_at IS NOT NULL AND override_ends_at > override_starts_at)
+			),
+			PRIMARY KEY(schedule_id, occurrence_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS schedule_occurrence_exceptions_schedule
+		 ON schedule_occurrence_exceptions(schedule_id, occurrence_key)`,
+		`INSERT INTO schema_migrations(version) VALUES (5)
+		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_all_day_dates (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			start_date TEXT NOT NULL,
+			end_date TEXT NOT NULL,
+			CHECK (end_date >= start_date)
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (6)
+		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_occurrence_all_day_overrides (
+			schedule_id TEXT NOT NULL,
+			occurrence_key TEXT NOT NULL,
+			start_date TEXT NOT NULL,
+			end_date TEXT NOT NULL,
+			CHECK (end_date >= start_date),
+			PRIMARY KEY(schedule_id, occurrence_key),
+			FOREIGN KEY(schedule_id, occurrence_key)
+			 REFERENCES schedule_occurrence_exceptions(schedule_id, occurrence_key) ON DELETE CASCADE
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (7)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)
