@@ -204,6 +204,12 @@ func (d *Database) CreateWeeklySchedule(
 			return scheduledomain.Item{}, fmt.Errorf("insert recurring schedule participant: %w", err)
 		}
 	}
+	if err := replaceSchedulePlace(ctx, tx, item.ID, item.PlaceID); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	if err := replaceScheduleTag(ctx, tx, item.ID, item.Tag); err != nil {
+		return scheduledomain.Item{}, err
+	}
 	var endsOn any
 	if rule.EndsOn != nil {
 		endsOn = rule.EndsOn.In(location).Format("2006-01-02")

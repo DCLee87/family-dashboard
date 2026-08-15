@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -124,5 +125,19 @@ func (d *Database) DashboardPreferences(ctx context.Context, deviceType string) 
 }
 func (d *Database) SaveDashboardPreferences(ctx context.Context, deviceType string, widgets []string, deviceID string, now time.Time) error {
 	_, err := d.db.ExecContext(ctx, `INSERT INTO dashboard_preferences(device_type,widget_order,updated_by_device_id,updated_at) VALUES(?,?,?,?) ON CONFLICT(device_type) DO UPDATE SET widget_order=excluded.widget_order,updated_by_device_id=excluded.updated_by_device_id,updated_at=excluded.updated_at`, deviceType, strings.Join(widgets, ","), deviceID, databaseTime(now))
+	return err
+}
+
+func (d *Database) WeatherPreferences(ctx context.Context, deviceType string) (int, int, error) {
+	var days, hours int
+	err := d.db.QueryRowContext(ctx, `SELECT daily_days,hourly_hours FROM device_weather_preferences WHERE device_type=?`, deviceType).Scan(&days, &hours)
+	return days, hours, err
+}
+
+func (d *Database) SaveWeatherPreferences(ctx context.Context, deviceType string, days, hours int, deviceID string, now time.Time) error {
+	if days < 1 || days > 7 || hours < 0 || hours > 48 {
+		return fmt.Errorf("invalid weather preferences")
+	}
+	_, err := d.db.ExecContext(ctx, `INSERT INTO device_weather_preferences(device_type,daily_days,hourly_hours,updated_by_device_id,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(device_type) DO UPDATE SET daily_days=excluded.daily_days,hourly_hours=excluded.hourly_hours,updated_by_device_id=excluded.updated_by_device_id,updated_at=excluded.updated_at`, deviceType, days, hours, deviceID, databaseTime(now))
 	return err
 }

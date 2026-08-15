@@ -36,6 +36,11 @@ func TestValidateRequiresCoreFields(t *testing.T) {
 	if err := Validate(valid); err != nil {
 		t.Fatal(err)
 	}
+	valid.Tag = "unknown"
+	if !errors.Is(Validate(valid), ErrInvalidTag) {
+		t.Fatalf("invalid tag: got %v", Validate(valid))
+	}
+	valid.Tag = TagAcademy
 	valid.Participants = nil
 	if !errors.Is(Validate(valid), ErrParticipantsRequired) {
 		t.Fatalf("missing participants: got %v", Validate(valid))

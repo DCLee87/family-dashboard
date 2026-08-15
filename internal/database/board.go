@@ -32,6 +32,7 @@ type BoardItem struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	ArchivedAt  *time.Time `json:"archivedAt,omitempty"`
 	DeletedAt   *time.Time `json:"deletedAt,omitempty"`
+	Recipients  []string   `json:"recipients"`
 }
 
 func validBoardItem(item BoardItem) bool {
@@ -127,7 +128,52 @@ func (d *Database) queryBoardItems(ctx context.Context, clause string, args ...a
 		item.DeletedAt = parseNullableDBTime(deleted)
 		result = append(result, item)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for index := range result {
+		recipientRows, recipientErr := d.db.QueryContext(ctx, `SELECT owner FROM board_notification_recipients WHERE board_item_id=? ORDER BY owner`, result[index].ID)
+		if recipientErr != nil {
+			return nil, recipientErr
+		}
+		for recipientRows.Next() {
+			var owner string
+			if err := recipientRows.Scan(&owner); err != nil {
+				recipientRows.Close()
+				return nil, err
+			}
+			result[index].Recipients = append(result[index].Recipients, owner)
+		}
+		recipientRows.Close()
+		if len(result[index].Recipients) == 0 {
+			result[index].Recipients = []string{"dad", "mom"}
+		}
+	}
+	return result, nil
+}
+
+func (d *Database) SaveBoardRecipients(ctx context.Context, itemID string, recipients []string) error {
+	recipients = uniqueOwners(recipients)
+	if len(recipients) == 0 {
+		return errors.New("invalid board recipients")
+	}
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `DELETE FROM board_notification_recipients WHERE board_item_id=?`, itemID); err != nil {
+		return err
+	}
+	for _, owner := range recipients {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO board_notification_recipients(board_item_id,owner) VALUES(?,?)`, itemID, owner); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func parseNullableDBTime(value sql.NullString) *time.Time {

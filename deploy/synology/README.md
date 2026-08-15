@@ -8,11 +8,12 @@ E1 데이터 볼륨은 유지하지만, 외부 백업과 복구 절차가 검증
 
 1. Container Manager에서 Compose 프로젝트를 실행할 수 있어야 한다.
 2. 배포 디렉터리의 `data` 디렉터리를 만들고 컨테이너 UID `10001`이 쓸 수 있게 설정한다.
-3. Tailscale Serve가 NAS의 loopback `8080`을 비공개 HTTPS로 프록시해야 한다.
+3. 현재 운영은 NAS의 loopback `8080`을 유지한다. 공개 전환 시 Synology
+   Reverse Proxy가 유효한 인증서로 HTTPS를 종료하고 loopback으로 프록시한다.
 4. Compose의 `FAMILY_DASHBOARD_LOCAL_NETWORKS`에는 실제 Docker 프록시
    소스 CIDR을 명시한다. 빈 값은 최초 설정 변경 API를 기본 거부한다.
-5. `8080`은 `127.0.0.1`에만 바인딩하며 공유기 포트 포워딩이나 Tailscale
-   Funnel을 사용하지 않는다.
+5. `8080`은 `127.0.0.1`에만 바인딩한다. 공개 시에도 `8080`과 DSM 포트는
+   열지 않고 검증된 HTTPS `443` 경로만 사용한다.
 6. TV·공용 태블릿은 Synology Reverse Proxy의 별도 LAN HTTPS 진입 경로를
    사용한다. 로컬 CA 개인키와 실제 주소는 Git에 저장하지 않는다.
 
@@ -80,6 +81,27 @@ sudo sh c1-rollback.sh /volume1/docker/family-dashboard/backups/pre-c1-<UTC>
 롤백은 현재 DB 파일을 백업본으로 교체하는 파괴적 작업이므로 새 C1 일정
 데이터를 보존하지 않는다. 상태 확인과 화면 문제만으로 즉시 롤백하지 말고
 먼저 로그와 `--check-db` 결과를 확인한다.
+
+## C6 통합 기능 배포
+
+C6는 schema version 16을 적용한다. Mac에서 패키지를 생성한다.
+
+```sh
+sh deploy/synology/build-c6-package.sh
+```
+
+NAS의 `family-dashboard-c6` 디렉터리로 전송한 후 체크섬을 확인하고 배포한다.
+
+```sh
+shasum -a 256 -c family-dashboard-c6-amd64.tar.sha256
+sudo sh c6-deploy.sh
+```
+
+스크립트가 출력하는 `backups/pre-c6-<UTC>` 경로는 C6 실기기 확인이 끝날 때까지
+보존한다. 배포 후 공지 관리, 등록 장소, 24시간 예보, 일정·할 일과 기존 등록
+기기가 유지되는지 확인한다. 부모 비밀번호 로그인은 관리자 모드에서 계정을
+설정한 뒤 외부 네트워크에서 검증한다. 복구 시험과 공유기 공개 설정은 운영
+승인 없이 실행하지 않는다.
 
 ## C2 반복 일정 시험 배포
 

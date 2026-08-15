@@ -112,8 +112,8 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 12 {
-		t.Fatalf("schema version: got %d, want 12", version)
+	if version != 16 {
+		t.Fatalf("schema version: got %d, want 16", version)
 	}
 
 	tables := []string{
@@ -129,6 +129,7 @@ func TestDatabaseCreatesSecuritySchema(t *testing.T) {
 		"family_members",
 		"schedules",
 		"schedule_participants",
+		"schedule_tags",
 		"schedule_recurrence_rules",
 		"schedule_recurrence_days",
 		"schedule_occurrence_exceptions",
@@ -208,8 +209,79 @@ func TestDatabaseMigratesE1Schema(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 12 {
-		t.Fatalf("migrated schema version: got %d, want 12", version)
+	if version != 16 {
+		t.Fatalf("migrated schema version: got %d, want 16", version)
+	}
+}
+
+func TestDatabaseRepairsLegacyOrphanRecordsBeforeC6Migration(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := Open(dataDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy, err := sql.Open("sqlite", filepath.Join(dataDir, "family-dashboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`PRAGMA foreign_keys = OFF`,
+		`DELETE FROM schema_migrations WHERE version = 13`,
+		`INSERT INTO schedule_notification_settings(schedule_id, enabled) VALUES ('missing-schedule', 1)`,
+		`INSERT INTO task_assignees(task_id, family_member_id) VALUES ('missing-task', 'dad')`,
+	} {
+		if _, err := legacy.Exec(statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, err := Open(dataDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repaired.Close()
+	if err := repaired.IntegrityCheck(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{
+		`SELECT COUNT(*) FROM schedule_notification_settings WHERE schedule_id = 'missing-schedule'`,
+		`SELECT COUNT(*) FROM task_assignees WHERE task_id = 'missing-task'`,
+	} {
+		var count int
+		if err := repaired.db.QueryRow(query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("orphan record was not removed for query %q", query)
+		}
+	}
+}
+
+func TestIntegrityCheckReportsForeignKeyViolations(t *testing.T) {
+	database, err := Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`INSERT INTO task_assignees(task_id, family_member_id) VALUES ('missing-task', 'dad')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.IntegrityCheck(context.Background()); err == nil {
+		t.Fatal("foreign key violation was not reported")
 	}
 }
 

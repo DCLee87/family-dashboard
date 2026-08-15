@@ -78,6 +78,12 @@ func (d *Database) CreateSchedule(
 			return scheduledomain.Item{}, fmt.Errorf("insert schedule participant: %w", err)
 		}
 	}
+	if err := replaceSchedulePlace(ctx, tx, item.ID, item.PlaceID); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	if err := replaceScheduleTag(ctx, tx, item.ID, item.Tag); err != nil {
+		return scheduledomain.Item{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return scheduledomain.Item{}, fmt.Errorf("commit schedule creation: %w", err)
 	}
@@ -119,6 +125,12 @@ func (d *Database) CreateAllDaySchedule(
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_participants(schedule_id, family_member_id) VALUES (?, ?)`, item.ID, participant); err != nil {
 			return scheduledomain.Item{}, fmt.Errorf("insert all-day schedule participant: %w", err)
 		}
+	}
+	if err := replaceSchedulePlace(ctx, tx, item.ID, item.PlaceID); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	if err := replaceScheduleTag(ctx, tx, item.ID, item.Tag); err != nil {
+		return scheduledomain.Item{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return scheduledomain.Item{}, fmt.Errorf("commit all-day schedule creation: %w", err)
@@ -182,6 +194,12 @@ func (d *Database) UpdateSchedule(
 			return scheduledomain.Item{}, fmt.Errorf("insert schedule participant: %w", err)
 		}
 	}
+	if err := replaceSchedulePlace(ctx, tx, item.ID, item.PlaceID); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	if err := replaceScheduleTag(ctx, tx, item.ID, item.Tag); err != nil {
+		return scheduledomain.Item{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return scheduledomain.Item{}, fmt.Errorf("commit schedule update: %w", err)
 	}
@@ -242,6 +260,12 @@ func (d *Database) UpdateAllDaySchedule(
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_participants(schedule_id, family_member_id) VALUES (?, ?)`, item.ID, participant); err != nil {
 			return scheduledomain.Item{}, err
 		}
+	}
+	if err := replaceSchedulePlace(ctx, tx, item.ID, item.PlaceID); err != nil {
+		return scheduledomain.Item{}, err
+	}
+	if err := replaceScheduleTag(ctx, tx, item.ID, item.Tag); err != nil {
+		return scheduledomain.Item{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return scheduledomain.Item{}, fmt.Errorf("commit all-day schedule update: %w", err)
@@ -372,6 +396,16 @@ func (d *Database) querySchedules(
 			return nil, err
 		}
 		items[index].Participants = participants
+		placeID, err := d.schedulePlace(ctx, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		items[index].PlaceID = placeID
+		tag, err := d.scheduleTag(ctx, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		items[index].Tag = tag
 		startDate, endDate, allDay, err := d.scheduleAllDayDates(ctx, items[index].ID)
 		if err != nil {
 			return nil, err
@@ -384,6 +418,55 @@ func (d *Database) querySchedules(
 		}
 	}
 	return items, nil
+}
+
+func replaceSchedulePlace(ctx context.Context, tx *sql.Tx, scheduleID, placeID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM schedule_places WHERE schedule_id=?`, scheduleID); err != nil {
+		return fmt.Errorf("clear schedule place: %w", err)
+	}
+	if strings.TrimSpace(placeID) == "" {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_places(schedule_id,place_id) VALUES(?,?)`, scheduleID, placeID); err != nil {
+		return fmt.Errorf("save schedule place: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) schedulePlace(ctx context.Context, scheduleID string) (string, error) {
+	var placeID string
+	err := d.db.QueryRowContext(ctx, `SELECT place_id FROM schedule_places WHERE schedule_id=?`, scheduleID).Scan(&placeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("query schedule place: %w", err)
+	}
+	return placeID, nil
+}
+
+func replaceScheduleTag(ctx context.Context, tx *sql.Tx, scheduleID, tag string) error {
+	if tag == "" {
+		tag = scheduledomain.TagGeneral
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schedule_tags(schedule_id,tag) VALUES(?,?)
+		ON CONFLICT(schedule_id) DO UPDATE SET tag=excluded.tag`, scheduleID, tag)
+	if err != nil {
+		return fmt.Errorf("save schedule tag: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) scheduleTag(ctx context.Context, scheduleID string) (string, error) {
+	var tag string
+	err := d.db.QueryRowContext(ctx, `SELECT tag FROM schedule_tags WHERE schedule_id=?`, scheduleID).Scan(&tag)
+	if errors.Is(err, sql.ErrNoRows) {
+		return scheduledomain.TagGeneral, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("query schedule tag: %w", err)
+	}
+	return tag, nil
 }
 
 func (d *Database) scheduleAllDayDates(ctx context.Context, scheduleID string) (string, string, bool, error) {

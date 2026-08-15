@@ -9,9 +9,12 @@ import (
 )
 
 type ScheduleNotificationSetting struct {
-	Enabled          bool `json:"enabled"`
-	TimedLeadMinutes int  `json:"timedLeadMinutes"`
-	AllDayHour       int  `json:"allDayHour"`
+	Enabled          bool     `json:"enabled"`
+	TimedLeadMinutes int      `json:"timedLeadMinutes"`
+	AllDayHour       int      `json:"allDayHour"`
+	TimedLeadOptions []int    `json:"timedLeadOptions"`
+	AllDayHours      []int    `json:"allDayHours"`
+	Recipients       []string `json:"recipients"`
 }
 
 func (d *Database) ScheduleNotificationSetting(ctx context.Context, scheduleID string) (ScheduleNotificationSetting, error) {
@@ -28,12 +31,51 @@ func (d *Database) ScheduleNotificationSetting(ctx context.Context, scheduleID s
 		if exists == 0 {
 			return setting, ErrScheduleNotFound
 		}
-		return ScheduleNotificationSetting{Enabled: true, TimedLeadMinutes: 30, AllDayHour: 20}, nil
+		return ScheduleNotificationSetting{Enabled: true, TimedLeadMinutes: 30, AllDayHour: 20, TimedLeadOptions: []int{30}, AllDayHours: []int{20}, Recipients: []string{"dad", "mom"}}, nil
 	}
 	if err != nil {
 		return setting, fmt.Errorf("read schedule notification setting: %w", err)
 	}
 	setting.Enabled = enabled == 1
+	rows, rowsErr := d.db.QueryContext(ctx, `SELECT kind,value FROM schedule_notification_times WHERE schedule_id=? ORDER BY kind,value`, scheduleID)
+	if rowsErr != nil {
+		return setting, rowsErr
+	}
+	for rows.Next() {
+		var kind string
+		var value int
+		if err := rows.Scan(&kind, &value); err != nil {
+			rows.Close()
+			return setting, err
+		}
+		if kind == "timed" {
+			setting.TimedLeadOptions = append(setting.TimedLeadOptions, value)
+		} else {
+			setting.AllDayHours = append(setting.AllDayHours, value)
+		}
+	}
+	rows.Close()
+	if len(setting.TimedLeadOptions) == 0 {
+		setting.TimedLeadOptions = []int{setting.TimedLeadMinutes}
+	}
+	if len(setting.AllDayHours) == 0 {
+		setting.AllDayHours = []int{setting.AllDayHour}
+	}
+	ownerRows, ownerErr := d.db.QueryContext(ctx, `SELECT owner FROM schedule_notification_recipients WHERE schedule_id=? ORDER BY owner`, scheduleID)
+	if ownerErr != nil {
+		return setting, ownerErr
+	}
+	defer ownerRows.Close()
+	for ownerRows.Next() {
+		var owner string
+		if err := ownerRows.Scan(&owner); err != nil {
+			return setting, err
+		}
+		setting.Recipients = append(setting.Recipients, owner)
+	}
+	if len(setting.Recipients) == 0 {
+		setting.Recipients = []string{"dad", "mom"}
+	}
 	return setting, nil
 }
 
@@ -53,7 +95,32 @@ func (d *Database) SaveScheduleNotificationSetting(
 	if exists == 0 {
 		return ErrScheduleNotFound
 	}
-	_, err := d.db.ExecContext(ctx, `INSERT INTO schedule_notification_settings(
+	if len(setting.TimedLeadOptions) == 0 {
+		setting.TimedLeadOptions = []int{setting.TimedLeadMinutes}
+	}
+	if len(setting.AllDayHours) == 0 {
+		setting.AllDayHours = []int{setting.AllDayHour}
+	}
+	for _, value := range setting.TimedLeadOptions {
+		if value < 0 || value > 10080 {
+			return fmt.Errorf("invalid schedule notification setting")
+		}
+	}
+	for _, value := range setting.AllDayHours {
+		if value < 0 || value > 23 {
+			return fmt.Errorf("invalid schedule notification setting")
+		}
+	}
+	recipients := uniqueOwners(setting.Recipients)
+	if setting.Enabled && len(recipients) == 0 {
+		return fmt.Errorf("invalid schedule notification recipients")
+	}
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO schedule_notification_settings(
 		schedule_id, enabled, timed_lead_minutes, all_day_hour, updated_at
 	) VALUES (?, ?, ?, ?, ?)
 	ON CONFLICT(schedule_id) DO UPDATE SET enabled = excluded.enabled,
@@ -63,7 +130,28 @@ func (d *Database) SaveScheduleNotificationSetting(
 	if err != nil {
 		return fmt.Errorf("save schedule notification setting: %w", err)
 	}
-	return nil
+	if _, err = tx.ExecContext(ctx, `DELETE FROM schedule_notification_times WHERE schedule_id=?`, scheduleID); err != nil {
+		return err
+	}
+	for _, value := range setting.TimedLeadOptions {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schedule_notification_times(schedule_id,kind,value) VALUES(?,'timed',?)`, scheduleID, value); err != nil {
+			return err
+		}
+	}
+	for _, value := range setting.AllDayHours {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schedule_notification_times(schedule_id,kind,value) VALUES(?,'all_day',?)`, scheduleID, value); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM schedule_notification_recipients WHERE schedule_id=?`, scheduleID); err != nil {
+		return err
+	}
+	for _, owner := range recipients {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schedule_notification_recipients(schedule_id,owner) VALUES(?,?)`, scheduleID, owner); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (d *Database) ActiveParentPushSubscriptions(ctx context.Context) ([]PushSubscription, error) {

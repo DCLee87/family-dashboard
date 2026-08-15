@@ -55,9 +55,10 @@ func (a *App) currentDevice(w http.ResponseWriter, r *http.Request) {
 			"localOnly": device.LocalOnly,
 		},
 		"permissions": map[string]bool{
-			"view":           true,
-			"admin":          a.adminSessionActive(r, device.ID),
-			"canUnlockAdmin": device.Type != "tv",
+			"view":             true,
+			"admin":            a.adminSessionActive(r, device.ID),
+			"canUnlockAdmin":   device.Type != "tv",
+			"canManageDevices": deviceCanManageEnrollments(device),
 		},
 	})
 }

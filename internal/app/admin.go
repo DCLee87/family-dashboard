@@ -188,11 +188,35 @@ func (a *App) requireAdmin(
 	r *http.Request,
 	stateChange bool,
 ) (database.Device, bool) {
+	return a.requireAdminFor(w, r, stateChange, func(device database.Device) bool {
+		return device.Type == "trusted_pc"
+	})
+}
+
+func deviceCanManageEnrollments(device database.Device) bool {
+	return device.Type == "trusted_pc" ||
+		(device.Type == "parent_mobile" && device.Owner.Valid && device.Owner.String == "dad")
+}
+
+func (a *App) requireDeviceAdmin(
+	w http.ResponseWriter,
+	r *http.Request,
+	stateChange bool,
+) (database.Device, bool) {
+	return a.requireAdminFor(w, r, stateChange, deviceCanManageEnrollments)
+}
+
+func (a *App) requireAdminFor(
+	w http.ResponseWriter,
+	r *http.Request,
+	stateChange bool,
+	allowed func(database.Device) bool,
+) (database.Device, bool) {
 	device, ok := a.authenticatedDevice(w, r)
 	if !ok {
 		return database.Device{}, false
 	}
-	if device.Type != "trusted_pc" {
+	if !allowed(device) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden"})
 		return database.Device{}, false
 	}

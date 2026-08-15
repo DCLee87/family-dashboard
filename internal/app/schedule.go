@@ -19,8 +19,10 @@ const maxScheduleRange = 62 * 24 * time.Hour
 type scheduleRequest struct {
 	Title             string                   `json:"title"`
 	LocationName      string                   `json:"locationName"`
+	PlaceID           string                   `json:"placeId"`
 	Notes             string                   `json:"notes"`
 	Visibility        string                   `json:"visibility"`
+	Tag               string                   `json:"tag"`
 	StartsAt          string                   `json:"startsAt"`
 	EndsAt            string                   `json:"endsAt"`
 	Participants      []string                 `json:"participants"`
@@ -570,8 +572,8 @@ func decodeScheduleRequest(
 		return request, scheduledomain.Item{}, false
 	}
 	item := scheduledomain.Item{
-		Title: strings.TrimSpace(request.Title), LocationName: strings.TrimSpace(request.LocationName),
-		Notes: strings.TrimSpace(request.Notes), Visibility: request.Visibility,
+		Title: strings.TrimSpace(request.Title), LocationName: strings.TrimSpace(request.LocationName), PlaceID: strings.TrimSpace(request.PlaceID),
+		Notes: strings.TrimSpace(request.Notes), Visibility: request.Visibility, Tag: strings.TrimSpace(request.Tag),
 		Participants: request.Participants, Version: request.Version,
 	}
 	if request.TimeKind == scheduledomain.TimeKindAllDay {

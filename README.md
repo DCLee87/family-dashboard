@@ -10,7 +10,9 @@
 - E1 완료: React·TypeScript PWA, Go 단일 서버, SQLite와 NAS 기준선
 - E2 완료: 사설 HTTPS 외부 접속과 등록 기기 인증
 - C3 완료: 일정·할 일 휴지통, 복원과 일정 알림
-- C5 배포 후보: 일정·할 일·공지·날씨와 기기별 위젯 통합
+- C5 완료: 일정·할 일·공지·날씨와 기기별 위젯 통합
+- C6 NAS 운영 중: 가족별 하단 탭, 가계부·대출·적금, 부모별 브라우저 로그인
+- C7 NAS 운영 중: 월급 기간 이동, 예산·분류 분석, 대출·적금 납부 일정 고도화
 - 시놀로지 2베이 NAS를 운영 서버로 사용하는 것을 목표로 함
 
 ## E1 로컬 실행
@@ -54,8 +56,9 @@ curl http://localhost:8080/api/setup/status
 HTTPS와 Secure 쿠키를 사용한다. 초기 설정 코드는 최초 실행 시 보호된 운영
 로그에 한 번 표시되므로 채팅, Git 또는 문서에 복사하지 않는다.
 
-E2 인증·거부 시험과 Tailscale HTTPS 검증이 끝나지 않았으므로 `8080`과 DSM
-관리 포트를 인터넷에 공개하지 않는다.
+부모별 비밀번호 로그인은 구현됐지만 공개 HTTPS Reverse Proxy와 공격 차단
+실기기 검증은 남아 있다. `8080`과 DSM 관리 포트를 인터넷에 직접 공개하지
+않고, 검증 전 공유기 포트 포워딩도 추가하지 않는다.
 
 ## 문서
 
@@ -97,6 +100,7 @@ E2 인증·거부 시험과 Tailscale HTTPS 검증이 끝나지 않았으므로 
 - [E1 기술 스택 결정](docs/decisions/ADR-022-e1-technology-stack.md)
 - [E1 런타임 구현 결정](docs/decisions/ADR-023-e1-runtime-implementation.md)
 - [E2 사설 외부 접속 결정](docs/decisions/ADR-024-e2-private-remote-access.md)
+- [부모 브라우저 비밀번호 로그인 결정](docs/decisions/ADR-031-parent-browser-password-login.md)
 - [E2 기기 인증 설계](docs/architecture/e2-authentication-design.md)
 - [부모 모바일 Web Push 구독 결정](docs/decisions/ADR-026-web-push-subscriptions.md)
 - [E2 보안 요구사항 추적표](docs/up/02-elaboration/e2-security-traceability.md)

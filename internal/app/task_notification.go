@@ -18,6 +18,16 @@ func (a *App) processTaskNotifications(ctx context.Context, now time.Time) {
 	if a.config.VAPIDPublicKey == "" || a.config.VAPIDPrivateKey == "" {
 		return
 	}
+	windowStart, err := a.db.NotificationWindow(ctx, "task", now, 7*24*time.Hour)
+	if err != nil {
+		a.logger.Error("task notification watermark failed", "error", err)
+		return
+	}
+	defer func() {
+		if err := a.db.MarkNotificationWorker(ctx, "task", now); err != nil {
+			a.logger.Error("task notification watermark save failed", "error", err)
+		}
+	}()
 	items, err := a.db.ActiveTasks(ctx)
 	if err != nil {
 		a.logger.Error("task notification query failed", "error", err)
@@ -37,12 +47,16 @@ func (a *App) processTaskNotifications(ctx context.Context, now time.Time) {
 		if err != nil || len(subscriptions) == 0 {
 			continue
 		}
-		for _, candidate := range taskNotificationCandidates(item, setting, localNow, location) {
+		candidates := taskNotificationCandidatesBetween(item, setting, windowStart.In(location).AddDate(0, 0, -1), localNow.AddDate(0, 0, 9), location)
+		if item.Priority == taskdomain.PriorityImportant {
+			candidates = append(candidates, importantTaskReminderCandidates(item, localNow, location)...)
+		}
+		for _, candidate := range candidates {
 			status, err := a.db.TaskOccurrenceStatus(ctx, item.ID, candidate.key)
 			if err != nil || status != "pending" {
 				continue
 			}
-			if candidate.notifyAt.Before(now.Add(-2*time.Minute)) || candidate.notifyAt.After(now.Add(15*time.Second)) {
+			if candidate.notifyAt.Before(windowStart) || candidate.notifyAt.After(now.Add(15*time.Second)) {
 				continue
 			}
 			for _, subscription := range subscriptions {
@@ -52,12 +66,51 @@ func (a *App) processTaskNotifications(ctx context.Context, now time.Time) {
 	}
 }
 
+func importantTaskReminderCandidates(item taskdomain.Item, now time.Time, location *time.Location) []taskNotificationCandidate {
+	reminder := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, location).UTC()
+	if reminder.After(now.UTC()) {
+		return nil
+	}
+	if item.RepeatKind == taskdomain.RepeatNone {
+		dueDate, err := time.ParseInLocation("2006-01-02", item.DueDate, location)
+		if err != nil {
+			return nil
+		}
+		if taskDueAt(item, dueDate, location).Before(reminder) {
+			return []taskNotificationCandidate{{key: "single", notifyAt: reminder}}
+		}
+		return nil
+	}
+	start := now.AddDate(0, 0, -31)
+	if parsed, err := time.ParseInLocation("2006-01-02", item.StartsOn, location); err == nil && parsed.After(start) {
+		start = parsed
+	}
+	result := make([]taskNotificationCandidate, 0, 8)
+	for day := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location); !day.After(now); day = day.AddDate(0, 0, 1) {
+		if taskdomain.AppliesOn(item, day) && taskDueAt(item, day, location).Before(reminder) {
+			result = append(result, taskNotificationCandidate{key: day.Format("2006-01-02"), notifyAt: reminder})
+		}
+	}
+	return result
+}
+
+func taskDueAt(item taskdomain.Item, date time.Time, location *time.Location) time.Time {
+	if item.DueKind == taskdomain.DueDate {
+		return time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 0, 0, location).UTC()
+	}
+	return time.Date(date.Year(), date.Month(), date.Day(), item.DueMinute/60, item.DueMinute%60, 0, 0, location).UTC()
+}
+
 type taskNotificationCandidate struct {
 	key      string
 	notifyAt time.Time
 }
 
 func taskNotificationCandidates(item taskdomain.Item, setting database.TaskNotificationSetting, now time.Time, location *time.Location) []taskNotificationCandidate {
+	return taskNotificationCandidatesBetween(item, setting, now.AddDate(0, 0, -1), now.AddDate(0, 0, 9), location)
+}
+
+func taskNotificationCandidatesBetween(item taskdomain.Item, setting database.TaskNotificationSetting, from, to time.Time, location *time.Location) []taskNotificationCandidate {
 	if item.DueKind == taskdomain.DueNone {
 		return nil
 	}
@@ -68,10 +121,10 @@ func taskNotificationCandidates(item taskdomain.Item, setting database.TaskNotif
 		}
 		return []taskNotificationCandidate{{key: "single", notifyAt: taskNotifyAt(item, setting, date, location)}}
 	}
-	result := make([]taskNotificationCandidate, 0, 10)
-	start := time.Date(now.Year(), now.Month(), now.Day()-1, 0, 0, 0, 0, location)
-	for offset := 0; offset < 10; offset++ {
-		date := start.AddDate(0, 0, offset)
+	result := make([]taskNotificationCandidate, 0, 16)
+	start := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, location)
+	end := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, location)
+	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
 		if !taskdomain.AppliesOn(item, date) {
 			continue
 		}

@@ -14,15 +14,16 @@ import (
 )
 
 type boardRequest struct {
-	Kind        string `json:"kind"`
-	Title       string `json:"title"`
-	Body        string `json:"body"`
-	Priority    string `json:"priority"`
-	Visibility  string `json:"visibility"`
-	StartsOn    string `json:"startsOn"`
-	EndsOn      string `json:"endsOn"`
-	PushEnabled bool   `json:"pushEnabled"`
-	Version     int64  `json:"version"`
+	Kind        string   `json:"kind"`
+	Title       string   `json:"title"`
+	Body        string   `json:"body"`
+	Priority    string   `json:"priority"`
+	Visibility  string   `json:"visibility"`
+	StartsOn    string   `json:"startsOn"`
+	EndsOn      string   `json:"endsOn"`
+	PushEnabled bool     `json:"pushEnabled"`
+	Recipients  []string `json:"recipients"`
+	Version     int64    `json:"version"`
 }
 type boardView struct {
 	database.BoardItem
@@ -41,7 +42,10 @@ func decodeBoardRequest(w http.ResponseWriter, r *http.Request) (boardRequest, b
 	return request, true
 }
 func boardFromRequest(id string, r boardRequest) database.BoardItem {
-	return database.BoardItem{ID: id, Kind: r.Kind, Title: r.Title, Body: r.Body, Priority: r.Priority, Visibility: r.Visibility, StartsOn: r.StartsOn, EndsOn: r.EndsOn, PushEnabled: r.PushEnabled, Version: r.Version}
+	if r.Recipients == nil {
+		r.Recipients = []string{"dad", "mom"}
+	}
+	return database.BoardItem{ID: id, Kind: r.Kind, Title: r.Title, Body: r.Body, Priority: r.Priority, Visibility: r.Visibility, StartsOn: r.StartsOn, EndsOn: r.EndsOn, PushEnabled: r.PushEnabled, Recipients: r.Recipients, Version: r.Version}
 }
 func (a *App) listBoardItems(w http.ResponseWriter, r *http.Request) {
 	device, ok := a.authenticatedDevice(w, r)
@@ -77,10 +81,22 @@ func (a *App) createBoardItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	item, err := a.db.CreateBoardItem(r.Context(), boardFromRequest(security.NewToken(), request), device.ID, time.Now().UTC())
+	input := boardFromRequest(security.NewToken(), request)
+	if input.PushEnabled && len(input.Recipients) == 0 {
+		writeAPIError(w, 400, "invalid_board_recipients", "알림 수신자를 선택해 주세요.")
+		return
+	}
+	item, err := a.db.CreateBoardItem(r.Context(), input, device.ID, time.Now().UTC())
 	if err != nil {
 		writeAPIError(w, 400, "invalid_board_item", "게시 항목을 다시 확인해 주세요.")
 		return
+	}
+	if item.PushEnabled {
+		if err := a.db.SaveBoardRecipients(r.Context(), item.ID, input.Recipients); err != nil {
+			writeAPIError(w, 400, "invalid_board_recipients", "알림 수신자를 선택해 주세요.")
+			return
+		}
+		item.Recipients = input.Recipients
 	}
 	writeJSON(w, 201, item)
 	if item.Kind == "notice" && item.Priority == "important" && item.PushEnabled {
@@ -96,7 +112,12 @@ func (a *App) updateBoardItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	item, err := a.db.UpdateBoardItem(r.Context(), boardFromRequest(r.PathValue("id"), request), device.ID, time.Now().UTC())
+	input := boardFromRequest(r.PathValue("id"), request)
+	if input.PushEnabled && len(input.Recipients) == 0 {
+		writeAPIError(w, 400, "invalid_board_recipients", "알림 수신자를 선택해 주세요.")
+		return
+	}
+	item, err := a.db.UpdateBoardItem(r.Context(), input, device.ID, time.Now().UTC())
 	if errors.Is(err, database.ErrBoardItemConflict) {
 		writeAPIError(w, 409, "board_version_conflict", "다른 기기에서 게시 항목이 변경되었습니다.")
 		return
@@ -104,6 +125,13 @@ func (a *App) updateBoardItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeAPIError(w, 400, "invalid_board_item", "게시 항목을 다시 확인해 주세요.")
 		return
+	}
+	if item.PushEnabled {
+		if err := a.db.SaveBoardRecipients(r.Context(), item.ID, input.Recipients); err != nil {
+			writeAPIError(w, 400, "invalid_board_recipients", "알림 수신자를 선택해 주세요.")
+			return
+		}
+		item.Recipients = input.Recipients
 	}
 	writeJSON(w, 200, item)
 	if item.Kind == "notice" && item.Priority == "important" && item.PushEnabled {
@@ -177,7 +205,7 @@ func (a *App) sendBoardPush(item database.BoardItem) {
 		return
 	}
 	ctx := context.Background()
-	subscriptions, err := a.db.ActiveParentPushSubscriptions(ctx)
+	subscriptions, err := a.db.ActiveTaskPushSubscriptions(ctx, item.Recipients)
 	if err != nil {
 		a.logger.Error("board push subscriptions failed", "error", err)
 		return

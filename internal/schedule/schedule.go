@@ -13,6 +13,9 @@ const (
 	VisibilityFamily      = "family"
 	VisibilityTVSummary   = "tv_summary"
 	VisibilityParentsOnly = "parents_only"
+	TagGeneral            = "general"
+	TagAcademy            = "academy"
+	TagAfterSchool        = "after_school"
 )
 
 var (
@@ -20,14 +23,17 @@ var (
 	ErrInvalidTimeRange     = errors.New("schedule end must be after start")
 	ErrParticipantsRequired = errors.New("at least one participant is required")
 	ErrInvalidVisibility    = errors.New("invalid schedule visibility")
+	ErrInvalidTag           = errors.New("invalid schedule tag")
 )
 
 type Item struct {
 	ID                string
 	Title             string
 	LocationName      string
+	PlaceID           string
 	Notes             string
 	Visibility        string
+	Tag               string
 	StartsAt          time.Time
 	EndsAt            time.Time
 	Participants      []string
@@ -45,8 +51,10 @@ type View struct {
 	ID                string     `json:"id,omitempty"`
 	Title             string     `json:"title"`
 	LocationName      string     `json:"locationName,omitempty"`
+	PlaceID           string     `json:"placeId,omitempty"`
 	Notes             string     `json:"notes,omitempty"`
 	Visibility        string     `json:"visibility,omitempty"`
+	Tag               string     `json:"tag,omitempty"`
 	StartsAt          *time.Time `json:"startsAt,omitempty"`
 	EndsAt            *time.Time `json:"endsAt,omitempty"`
 	Participants      []string   `json:"participants,omitempty"`
@@ -84,6 +92,11 @@ func Validate(item Item) error {
 	}
 	if len(uniqueStrings(item.Participants)) == 0 {
 		return ErrParticipantsRequired
+	}
+	switch item.Tag {
+	case "", TagGeneral, TagAcademy, TagAfterSchool:
+	default:
+		return ErrInvalidTag
 	}
 	switch item.Visibility {
 	case VisibilityFamily, VisibilityTVSummary, VisibilityParentsOnly:
@@ -123,14 +136,21 @@ func Project(item Item, audience Audience) (View, bool) {
 		return view, true
 	}
 	view := View{
-		ID: item.ID, Title: item.Title, LocationName: item.LocationName,
-		Notes: item.Notes, Visibility: item.Visibility, Participants: item.Participants,
+		ID: item.ID, Title: item.Title, LocationName: item.LocationName, PlaceID: item.PlaceID,
+		Notes: item.Notes, Visibility: item.Visibility, Tag: normalizedTag(item.Tag), Participants: item.Participants,
 		Version: item.Version, OccurrenceKey: item.OccurrenceKey,
 		Recurring: item.OccurrenceKey != "", OccurrenceVersion: item.OccurrenceVersion,
 		TimeKind: normalizedTimeKind(item.TimeKind),
 	}
 	setViewTime(&view, item)
 	return view, true
+}
+
+func normalizedTag(value string) string {
+	if value == TagAcademy || value == TagAfterSchool {
+		return value
+	}
+	return TagGeneral
 }
 
 func ActiveStatus(items []Item, memberID string, at time.Time, audience Audience) (View, bool) {

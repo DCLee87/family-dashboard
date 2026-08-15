@@ -26,14 +26,14 @@ func TestScheduleRepositoryCreateListOverlapAndUpdate(t *testing.T) {
 	now := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
 	created, err := db.CreateSchedule(ctx, scheduledomain.Item{
 		ID: "school", Title: "학교", LocationName: "학교",
-		Visibility: scheduledomain.VisibilityFamily,
-		StartsAt:   now, EndsAt: now.Add(6 * time.Hour),
+		Visibility: scheduledomain.VisibilityFamily, Tag: scheduledomain.TagAcademy,
+		StartsAt: now, EndsAt: now.Add(6 * time.Hour),
 		Participants: []string{"daughter"},
 	}, "pc", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Version != 1 || len(created.Participants) != 1 {
+	if created.Version != 1 || len(created.Participants) != 1 || created.Tag != scheduledomain.TagAcademy {
 		t.Fatalf("unexpected created schedule: %#v", created)
 	}
 
@@ -60,11 +60,12 @@ func TestScheduleRepositoryCreateListOverlapAndUpdate(t *testing.T) {
 	}
 
 	created.Title = "학교 수정"
+	created.Tag = scheduledomain.TagAfterSchool
 	updated, err := db.UpdateSchedule(ctx, created, "tablet", now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Version != 2 || updated.Title != "학교 수정" {
+	if updated.Version != 2 || updated.Title != "학교 수정" || updated.Tag != scheduledomain.TagAfterSchool {
 		t.Fatalf("unexpected updated schedule: %#v", updated)
 	}
 	var createdBy, updatedBy string
@@ -131,6 +132,7 @@ func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
 	endsOn := time.Date(2026, 8, 10, 0, 0, 0, 0, location)
 	item := scheduledomain.Item{
 		ID: "weekly-school", Title: "등교", Visibility: scheduledomain.VisibilityFamily,
+		Tag:          scheduledomain.TagAcademy,
 		StartsAt:     time.Date(2026, 8, 3, 9, 0, 0, 0, location).UTC(),
 		EndsAt:       time.Date(2026, 8, 3, 10, 0, 0, 0, location).UTC(),
 		Participants: []string{"daughter"},
@@ -153,7 +155,7 @@ func TestWeeklyScheduleCreationExpandsWithoutDuplicatingTemplate(t *testing.T) {
 		t.Fatalf("got %d occurrences, want 3: %#v", len(items), items)
 	}
 	for _, occurrence := range items {
-		if occurrence.ID != item.ID || occurrence.OccurrenceKey == "" {
+		if occurrence.ID != item.ID || occurrence.OccurrenceKey == "" || occurrence.Tag != scheduledomain.TagAcademy {
 			t.Fatalf("unexpected occurrence: %#v", occurrence)
 		}
 	}

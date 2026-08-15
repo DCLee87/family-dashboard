@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,8 +13,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DCLee87/family-dashboard/internal/database"
 	"github.com/DCLee87/family-dashboard/internal/security"
 )
+
+func TestDeviceCanManageEnrollments(t *testing.T) {
+	tests := []struct {
+		name   string
+		device database.Device
+		want   bool
+	}{
+		{name: "trusted PC", device: database.Device{Type: "trusted_pc"}, want: true},
+		{name: "dad parent mobile", device: database.Device{Type: "parent_mobile", Owner: sql.NullString{String: "dad", Valid: true}}, want: true},
+		{name: "mom parent mobile", device: database.Device{Type: "parent_mobile", Owner: sql.NullString{String: "mom", Valid: true}}, want: false},
+		{name: "ownerless parent mobile", device: database.Device{Type: "parent_mobile"}, want: false},
+		{name: "shared tablet", device: database.Device{Type: "shared_tablet"}, want: false},
+		{name: "TV", device: database.Device{Type: "tv"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := deviceCanManageEnrollments(test.device); got != test.want {
+				t.Fatalf("deviceCanManageEnrollments() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
 
 func TestHealthAndRuntime(t *testing.T) {
 	application, err := New(Config{

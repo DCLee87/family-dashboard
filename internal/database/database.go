@@ -464,6 +464,167 @@ func (d *Database) initialize(ctx context.Context, recordStart bool) error {
 		)`,
 		`INSERT INTO schema_migrations(version) VALUES (12)
 		 ON CONFLICT(version) DO NOTHING`,
+		`DELETE FROM schedule_recurrence_days
+		 WHERE NOT EXISTS (SELECT 1 FROM schedule_recurrence_rules r WHERE r.schedule_id = schedule_recurrence_days.schedule_id)`,
+		`DELETE FROM schedule_occurrence_all_day_overrides
+		 WHERE NOT EXISTS (SELECT 1 FROM schedule_occurrence_exceptions e
+		  WHERE e.schedule_id = schedule_occurrence_all_day_overrides.schedule_id
+		    AND e.occurrence_key = schedule_occurrence_all_day_overrides.occurrence_key)`,
+		`DELETE FROM schedule_participants
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_participants.schedule_id)`,
+		`DELETE FROM schedule_recurrence_rules
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_recurrence_rules.schedule_id)`,
+		`DELETE FROM schedule_occurrence_exceptions
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_occurrence_exceptions.schedule_id)`,
+		`DELETE FROM schedule_all_day_dates
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_all_day_dates.schedule_id)`,
+		`DELETE FROM schedule_deletion_metadata
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_deletion_metadata.schedule_id)`,
+		`DELETE FROM schedule_notification_settings
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_notification_settings.schedule_id)`,
+		`DELETE FROM schedule_notification_deliveries
+		 WHERE NOT EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_notification_deliveries.schedule_id)`,
+		`DELETE FROM task_assignees
+		 WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_assignees.task_id)`,
+		`DELETE FROM task_recurrence_days
+		 WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_recurrence_days.task_id)`,
+		`DELETE FROM task_occurrence_states
+		 WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_occurrence_states.task_id)`,
+		`DELETE FROM task_notification_settings
+		 WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_notification_settings.task_id)`,
+		`DELETE FROM task_notification_recipients
+		 WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_notification_recipients.task_id)`,
+		`DELETE FROM task_notification_deliveries
+		 WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_notification_deliveries.task_id)`,
+		`DELETE FROM board_push_deliveries
+		 WHERE NOT EXISTS (SELECT 1 FROM board_items b WHERE b.id = board_push_deliveries.board_item_id)`,
+		`DELETE FROM weather_cache
+		 WHERE NOT EXISTS (SELECT 1 FROM places p WHERE p.id = weather_cache.place_id)`,
+		`CREATE TABLE IF NOT EXISTS schedule_places (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			place_id TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS schedule_places_place ON schedule_places(place_id)`,
+		`CREATE TABLE IF NOT EXISTS schedule_notification_times (
+			schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL CHECK (kind IN ('timed', 'all_day')),
+			value INTEGER NOT NULL CHECK (value BETWEEN 0 AND 10080),
+			PRIMARY KEY(schedule_id, kind, value)
+		)`,
+		`CREATE TABLE IF NOT EXISTS schedule_notification_recipients (
+			schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+			owner TEXT NOT NULL CHECK (owner IN ('dad', 'mom')),
+			PRIMARY KEY(schedule_id, owner)
+		)`,
+		`INSERT OR IGNORE INTO schedule_notification_times(schedule_id,kind,value)
+		 SELECT schedule_id,'timed',timed_lead_minutes FROM schedule_notification_settings s WHERE enabled=1
+		 AND NOT EXISTS (SELECT 1 FROM schedule_notification_times t WHERE t.schedule_id=s.schedule_id AND t.kind='timed')`,
+		`INSERT OR IGNORE INTO schedule_notification_times(schedule_id,kind,value)
+		 SELECT schedule_id,'all_day',all_day_hour FROM schedule_notification_settings s WHERE enabled=1
+		 AND NOT EXISTS (SELECT 1 FROM schedule_notification_times t WHERE t.schedule_id=s.schedule_id AND t.kind='all_day')`,
+		`INSERT OR IGNORE INTO schedule_notification_recipients(schedule_id,owner)
+		 SELECT s.schedule_id,o.owner FROM schedule_notification_settings s
+		 CROSS JOIN (SELECT 'dad' AS owner UNION ALL SELECT 'mom') o WHERE s.enabled=1
+		 AND NOT EXISTS (SELECT 1 FROM schedule_notification_recipients r WHERE r.schedule_id=s.schedule_id)`,
+		`CREATE TABLE IF NOT EXISTS notification_worker_state (
+			worker TEXT PRIMARY KEY,
+			last_checked_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS device_weather_preferences (
+			device_type TEXT PRIMARY KEY CHECK (device_type IN ('trusted_pc','parent_mobile','shared_tablet','tv')),
+			daily_days INTEGER NOT NULL CHECK (daily_days BETWEEN 1 AND 7),
+			hourly_hours INTEGER NOT NULL CHECK (hourly_hours BETWEEN 0 AND 48),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS board_notification_recipients (
+			board_item_id TEXT NOT NULL REFERENCES board_items(id) ON DELETE CASCADE,
+			owner TEXT NOT NULL CHECK (owner IN ('dad','mom')),
+			PRIMARY KEY(board_item_id,owner)
+		)`,
+		`INSERT INTO schema_migrations(version) VALUES (13)
+		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS finance_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			salary_amount INTEGER NOT NULL DEFAULT 0 CHECK (salary_amount >= 0),
+			budget_start_day INTEGER NOT NULL DEFAULT 21 CHECK (budget_start_day BETWEEN 1 AND 28),
+			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO finance_settings(id) VALUES (1) ON CONFLICT(id) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS finance_transactions (
+			id TEXT PRIMARY KEY,
+			amount INTEGER NOT NULL CHECK (amount > 0),
+			category TEXT NOT NULL CHECK (category IN ('food','living','transport','education','medical','leisure','utilities','loan_payment','savings','other')),
+			payer TEXT NOT NULL CHECK (payer IN ('dad','mom','family')),
+			occurred_on TEXT NOT NULL,
+			memo TEXT CHECK (memo IS NULL OR length(memo) <= 500),
+			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS finance_transactions_date ON finance_transactions(occurred_on DESC, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS finance_accounts (
+			id TEXT PRIMARY KEY,
+			kind TEXT NOT NULL CHECK (kind IN ('loan','installment_savings')),
+			name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+			balance_amount INTEGER NOT NULL DEFAULT 0 CHECK (balance_amount >= 0),
+			interest_basis_points INTEGER NOT NULL DEFAULT 0 CHECK (interest_basis_points BETWEEN 0 AND 100000),
+			monthly_amount INTEGER NOT NULL DEFAULT 0 CHECK (monthly_amount >= 0),
+			payment_day INTEGER NOT NULL DEFAULT 21 CHECK (payment_day BETWEEN 1 AND 31),
+			started_on TEXT,
+			maturity_on TEXT,
+			notes TEXT CHECK (notes IS NULL OR length(notes) <= 1000),
+			created_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			updated_by_device_id TEXT NOT NULL REFERENCES devices(id),
+			version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			CHECK (maturity_on IS NULL OR started_on IS NULL OR maturity_on >= started_on)
+		)`,
+		`CREATE INDEX IF NOT EXISTS finance_accounts_kind ON finance_accounts(kind, created_at)`,
+		`INSERT INTO schema_migrations(version) VALUES (14)
+		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS schedule_tags (
+			schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+			tag TEXT NOT NULL DEFAULT 'general' CHECK (tag IN ('general','academy','after_school'))
+		)`,
+		`INSERT OR IGNORE INTO schedule_tags(schedule_id,tag)
+		 SELECT id,'general' FROM schedules`,
+		`CREATE INDEX IF NOT EXISTS schedule_tags_tag ON schedule_tags(tag,schedule_id)`,
+		`INSERT INTO schema_migrations(version) VALUES (15)
+		 ON CONFLICT(version) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS parent_accounts (
+			owner TEXT PRIMARY KEY CHECK (owner IN ('dad','mom')),
+			password_hash TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+			failed_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_count >= 0),
+			blocked_until TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			password_changed_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS parent_login_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			owner TEXT CHECK (owner IN ('dad','mom') OR owner IS NULL),
+			result TEXT NOT NULL CHECK (result IN ('success','failure','blocked')),
+			reason TEXT NOT NULL,
+			remote_address TEXT,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS parent_login_devices (
+			device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+			owner TEXT NOT NULL REFERENCES parent_accounts(owner),
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS parent_login_devices_owner
+		 ON parent_login_devices(owner,device_id)`,
+		`CREATE INDEX IF NOT EXISTS parent_login_events_created
+		 ON parent_login_events(created_at)`,
+		`INSERT INTO schema_migrations(version) VALUES (16)
+		 ON CONFLICT(version) DO NOTHING`,
 	}
 	if recordStart {
 		statements = append(statements, `INSERT INTO runtime_state(id, start_count, last_started_at)
@@ -494,6 +655,12 @@ func (d *Database) IntegrityCheck(ctx context.Context) error {
 	}
 	if result != "ok" {
 		return fmt.Errorf("integrity check result: %s", result)
+	}
+	var table string
+	if err := d.db.QueryRowContext(ctx, `SELECT "table" FROM pragma_foreign_key_check LIMIT 1`).Scan(&table); err == nil {
+		return fmt.Errorf("foreign key check failed: %s", table)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("run foreign key check: %w", err)
 	}
 	return nil
 }

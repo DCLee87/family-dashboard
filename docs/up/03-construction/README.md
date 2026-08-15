@@ -14,6 +14,8 @@ E4 기준선을 바탕으로 일정의 최소 종단 흐름을 구현한다. 운
 - [C2 반복 일정과 회차 예외 계획](c2-recurring-schedules.md)
 - [C4 할 일과 알림 수직 조각](c4-task-notifications.md)
 - [C5 공지·날씨·기기별 대시보드 통합](c5-dashboard-integration.md)
+- [C6 사용성·알림 신뢰성 마감](c6-usability-and-reliability.md)
+- [C7 가계부·대출·적금 사용성 고도화](c7-finance-usability.md)
 
 ## 예정 산출물
 

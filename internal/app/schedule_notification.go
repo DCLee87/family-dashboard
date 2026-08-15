@@ -40,17 +40,19 @@ func (a *App) processScheduleNotifications(ctx context.Context, now time.Time) {
 	if a.config.VAPIDPublicKey == "" || a.config.VAPIDPrivateKey == "" {
 		return
 	}
-	items, err := a.db.SchedulesBetween(ctx, now.Add(-2*time.Hour), now.Add(36*time.Hour), "")
+	windowStart, err := a.db.NotificationWindow(ctx, "schedule", now, 7*24*time.Hour)
+	if err != nil {
+		a.logger.Error("schedule notification watermark failed", "error", err)
+		return
+	}
+	defer func() {
+		if err := a.db.MarkNotificationWorker(ctx, "schedule", now); err != nil {
+			a.logger.Error("schedule notification watermark save failed", "error", err)
+		}
+	}()
+	items, err := a.db.SchedulesBetween(ctx, windowStart.Add(-8*24*time.Hour), now.Add(36*time.Hour), "")
 	if err != nil {
 		a.logger.Error("schedule notification query failed", "error", err)
-		return
-	}
-	subscriptions, err := a.db.ActiveParentPushSubscriptions(ctx)
-	if err != nil {
-		a.logger.Error("schedule notification subscription query failed", "error", err)
-		return
-	}
-	if len(subscriptions) == 0 {
 		return
 	}
 	location, err := time.LoadLocation("Asia/Seoul")
@@ -63,14 +65,46 @@ func (a *App) processScheduleNotifications(ctx context.Context, now time.Time) {
 		if err != nil || !setting.Enabled {
 			continue
 		}
-		notifyAt, err := scheduleNotifyAt(item, setting, location)
-		if err != nil || notifyAt.Before(now.Add(-2*time.Minute)) || notifyAt.After(now.Add(15*time.Second)) {
+		subscriptions, err := a.db.ActiveTaskPushSubscriptions(ctx, setting.Recipients)
+		if err != nil || len(subscriptions) == 0 {
 			continue
 		}
-		for _, subscription := range subscriptions {
-			a.deliverScheduleNotification(ctx, item, notifyAt, subscription, now)
+		for _, notifyAt := range scheduleNotifyTimes(item, setting, location) {
+			if notifyAt.Before(windowStart) || notifyAt.After(now.Add(15*time.Second)) {
+				continue
+			}
+			for _, subscription := range subscriptions {
+				a.deliverScheduleNotification(ctx, item, notifyAt, subscription, now)
+			}
 		}
 	}
+}
+
+func scheduleNotifyTimes(item scheduledomain.Item, setting database.ScheduleNotificationSetting, location *time.Location) []time.Time {
+	if item.TimeKind == scheduledomain.TimeKindAllDay {
+		values := setting.AllDayHours
+		if len(values) == 0 {
+			values = []int{setting.AllDayHour}
+		}
+		start, err := time.ParseInLocation("2006-01-02", item.StartDate, location)
+		if err != nil {
+			return nil
+		}
+		result := make([]time.Time, 0, len(values))
+		for _, hour := range values {
+			result = append(result, time.Date(start.Year(), start.Month(), start.Day()-1, hour, 0, 0, 0, location).UTC())
+		}
+		return result
+	}
+	values := setting.TimedLeadOptions
+	if len(values) == 0 {
+		values = []int{setting.TimedLeadMinutes}
+	}
+	result := make([]time.Time, 0, len(values))
+	for _, lead := range values {
+		result = append(result, item.StartsAt.Add(-time.Duration(lead)*time.Minute))
+	}
+	return result
 }
 
 func scheduleNotifyAt(

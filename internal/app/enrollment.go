@@ -14,7 +14,7 @@ import (
 )
 
 func (a *App) createEnrollment(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireAdmin(w, r, true); !ok {
+	if _, ok := a.requireDeviceAdmin(w, r, true); !ok {
 		return
 	}
 	var request struct {
@@ -194,7 +194,7 @@ func (a *App) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) listEnrollments(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireAdmin(w, r, false); !ok {
+	if _, ok := a.requireDeviceAdmin(w, r, false); !ok {
 		return
 	}
 	items, err := a.db.ListEnrollments(r.Context(), time.Now().UTC())
@@ -214,7 +214,7 @@ func (a *App) listEnrollments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) approveEnrollment(w http.ResponseWriter, r *http.Request) {
-	device, ok := a.requireAdmin(w, r, true)
+	device, ok := a.requireDeviceAdmin(w, r, true)
 	if !ok {
 		return
 	}
@@ -235,7 +235,7 @@ func (a *App) approveEnrollment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) rejectEnrollment(w http.ResponseWriter, r *http.Request) {
-	device, ok := a.requireAdmin(w, r, true)
+	device, ok := a.requireDeviceAdmin(w, r, true)
 	if !ok {
 		return
 	}
@@ -256,7 +256,7 @@ func (a *App) rejectEnrollment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) listDevices(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireAdmin(w, r, false); !ok {
+	if _, ok := a.requireDeviceAdmin(w, r, false); !ok {
 		return
 	}
 	items, err := a.db.ListDevices(r.Context())
@@ -281,7 +281,7 @@ func (a *App) listDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) revokeDevice(w http.ResponseWriter, r *http.Request) {
-	actor, ok := a.requireAdmin(w, r, true)
+	actor, ok := a.requireDeviceAdmin(w, r, true)
 	if !ok {
 		return
 	}

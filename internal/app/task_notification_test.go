@@ -49,3 +49,26 @@ func TestRecurringTaskNotificationsUseOccurrenceDate(t *testing.T) {
 		t.Fatalf("first weekly notification: got %s want %s", candidates[0].notifyAt, want)
 	}
 }
+
+func TestImportantOverdueTaskGetsDailyReminder(t *testing.T) {
+	location, _ := time.LoadLocation("Asia/Seoul")
+	now := time.Date(2026, 8, 8, 10, 0, 0, 0, location)
+	item := taskdomain.Item{Priority: taskdomain.PriorityImportant, DueKind: taskdomain.DueDate, DueDate: "2026-08-07", RepeatKind: taskdomain.RepeatNone}
+	candidates := importantTaskReminderCandidates(item, now, location)
+	want := time.Date(2026, 8, 8, 9, 0, 0, 0, location).UTC()
+	if len(candidates) != 1 || candidates[0].key != "single" || !candidates[0].notifyAt.Equal(want) {
+		t.Fatalf("overdue candidates=%#v want=%s", candidates, want)
+	}
+}
+
+func TestTaskNotificationBackfillsWorkerWindow(t *testing.T) {
+	location, _ := time.LoadLocation("Asia/Seoul")
+	item := taskdomain.Item{DueKind: taskdomain.DueDateTime, DueMinute: 10 * 60, RepeatKind: taskdomain.RepeatDaily, StartsOn: "2026-08-01"}
+	setting := database.TaskNotificationSetting{Enabled: true, TimedLeadMinutes: 60}
+	from := time.Date(2026, 8, 3, 0, 0, 0, 0, location)
+	to := time.Date(2026, 8, 8, 0, 0, 0, 0, location)
+	candidates := taskNotificationCandidatesBetween(item, setting, from, to, location)
+	if len(candidates) != 6 || candidates[0].key != "2026-08-03" || candidates[5].key != "2026-08-08" {
+		t.Fatalf("backfill candidates=%#v", candidates)
+	}
+}
